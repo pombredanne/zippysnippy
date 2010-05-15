@@ -1,0 +1,14 @@
+<html>
+  <head>
+    <script>
+
+    chrome.tabs.onSelectionChanged.addListener(function(tabId, selectInfo) {
+      localStorage['windowID'] = selectInfo.windowID;
+      tab = chrome.tabs.get(tabId, function (tab) {
+        localStorage['url'] = tab.url;
+      });
+    });
+
+    </script>
+  </head>
+</html>
