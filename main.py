@@ -7,6 +7,7 @@ import re
 import datetime
 import collections
 import random
+import subprocess
 import os
 
 logging.basicConfig(level=logging.DEBUG)
@@ -21,6 +22,11 @@ DATA_DIRECTORY = "/home/bthomson/.snippets"
 snippets = []
 
 categories = set()
+
+def set_term_title(text, show_extra=True):
+  if show_extra:
+    text = "%s - %s" % (APP_NAME, text)
+  print '"\033]0;%s\007"' % text
 
 def strip_unicode(text):
   # replace this with a compiled regex if its too slow
@@ -134,7 +140,6 @@ def write_to_category_files():
         f.write("*\n")
         f.write(snippet.text.encode("UTF-8"))
         f.write(SEP)
-  print "Snippet data saved."
 
 def filename_to_category_name(fn):
   return fn.split('.')[0].replace("_", " ")
@@ -207,8 +212,6 @@ categories.add(active_category)
 #write_to_one_file()
 #write_to_category_files()
 
-get_chrome_url()
-
 def nice_datesince(the_date):
   """Formats a datetime in terms of earlier today, yesterday, 3 days ago, etc"""
   today = datetime.datetime.now()
@@ -235,9 +238,6 @@ import urwid
 
 txt_header = ("%s %s - " % (APP_NAME, APP_VERSION) + 
               "Press ? for help")
-
-txt_footer = ("Tracking %d snippets in %d categories." % (len(snippets), len(categories)))
-txt_footer_r = ("Active category: %s." % active_category)
 
 # regex replaces single line breaks with spaces and leaves double line breaks
 current_snippet = get_next_snippet()
@@ -277,7 +277,10 @@ listbox_content = [
 ]
 
 def update_view(snippet):
-  snippet.read_count += 1
+  # actually this shouldn't even be in here, move it to return button
+  #snippet.read_count += 1
+  if snippet.read_count < 0:
+     snippet.read_count = 0
 
   try:
     source.set_text("      Source: %s" % snippet.source)
@@ -304,15 +307,24 @@ def update_view(snippet):
   read_count.set_text("        Read: %s" % rs)
   rep_rate.set_text("    Rep rate: %s" % snippet.rep_rate_slider_txt())
 
+  set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
+
+
 update_view(current_snippet)
 
-status = urwid.Text(txt_footer)
+status = urwid.Text("")
+active_cat = urwid.Text("", align='right')
+
+def update_footer():
+  status.set_text("Tracking %d snippets in %d categories." % (len(snippets),
+                                                              len(categories)))
+  active_cat.set_text("Active category: %s " % active_category)
+
+update_footer()
 
 listbox = urwid.ListBox(urwid.SimpleListWalker(listbox_content))
 header = urwid.AttrMap(urwid.Text(txt_header), 'header')
-footer = urwid.AttrMap(
-               urwid.Columns([status,
-                              urwid.Text(txt_footer_r, align='right')]), 'footer')
+footer = urwid.AttrMap(urwid.Columns([status, active_cat]), 'footer')
 frame = urwid.Frame(urwid.AttrWrap(listbox, 'body'), header=header, footer=footer)
 
 palette = [
@@ -337,17 +349,65 @@ HELP_TEXT = """
   """ % APP_NAME
 
 def quit():
+  import time
+  print '\033c'
   write_to_category_files()
+  set_term_title("Terminal", show_extra=False)
   sys.exit(0)
 
 delete = False
 
+def open_editor_with_tmp_file_containing(in_text):
+  import random
+  import string
+  fn = "st_" + ''.join([random.choice(string.letters) for x in range(20)])
+  path = "/tmp/" + fn
+  with open(path, 'w') as f:
+    f.write(in_text)
+
+  import pexpect, struct, fcntl, termios, signal, sys
+  p = pexpect.spawn('vim %s' % path)
+
+  def sigwinch_passthrough(sig, data):
+    """window resize event signal handler"""
+    s = struct.pack("HHHH", 0, 0, 0, 0)
+    a = struct.unpack('hhhh', fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, s))
+    p.setwinsize(a[0], a[1])
+
+  handler = signal.getsignal(signal.SIGWINCH)
+  signal.signal(signal.SIGWINCH, sigwinch_passthrough)
+
+  # Small delay required or window won't resize
+  import time
+  time.sleep(0.100)
+  sigwinch_passthrough(None, None)
+
+  try:
+    p.interact()
+  except OSError:
+    # This happens on successful termination sometimes, for some reason
+    pass
+
+  # Restore existing handler
+  signal.signal(signal.SIGWINCH, handler)
+
+  # Call handler in case window was resized
+  handler(None, None)
+
+  with open(path, 'r') as f:
+    out_text = f.read()
+
+  os.remove(path)
+
+  return out_text
+
 def unhandled(input):
   global current_snippet
+  global active_category
   global delete
 
   sz = screen.get_cols_rows()
-  status.set_text(txt_footer)
+  update_footer()
   if input == "enter":
     import random
     current_snippet = get_next_snippet()
@@ -366,57 +426,40 @@ def unhandled(input):
     current_snippet.rep_rate -= 1
     rep_rate.set_text("    Rep rate: %s" % current_snippet.rep_rate_slider_txt())
   elif input == "e":
-    import random
-    import string
-    fn = "st_" + ''.join([random.choice(string.letters) for x in range(20)])
-    path = "/tmp/" + fn
-    with open(path, 'w') as f:
-      f.write(current_snippet.text)
+    start_txt = current_snippet.text
+    result_txt = open_editor_with_tmp_file_containing(start_txt)
 
-    import pexpect, struct, fcntl, termios, signal, sys
-    p = pexpect.spawn('vim %s' % path)
-
-    def sigwinch_passthrough(sig, data):
-      """window resize event signal handler"""
-      s = struct.pack("HHHH", 0, 0, 0, 0)
-      a = struct.unpack('hhhh', fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, s))
-      p.setwinsize(a[0], a[1])
-
-    handler = signal.getsignal(signal.SIGWINCH)
-    signal.signal(signal.SIGWINCH, sigwinch_passthrough)
-
-    # Small delay required or window won't resize
-    import time
-    time.sleep(0.100)
-    sigwinch_passthrough(None, None)
-
-    try:
-      p.interact()
-    except OSError:
-      # This happens on successful termination sometimes, for some reason
-      pass
-
-    # Restore existing handler
-    signal.signal(signal.SIGWINCH, handler)
-
-    # Call handler in case window was resized
-    handler(None, None)
-
-    with open(path, 'r') as f:
-      txt = f.read()
-
-    os.remove(path)
-
-    if txt == current_snippet.text:
+    if result_txt == start_txt:
       status.set_text("Edit finished. No changes made.")
     else:
       status.set_text("Text updated.")
-      current_snippet.text = txt
+      current_snippet.text = result_txt
 
     update_view(current_snippet)
+  elif input == "n":
+    result_txt = open_editor_with_tmp_file_containing("")
+    if len(result_txt) < 3:
+      status.set_text("New clip not created.")
+    else:
+      current_snippet = Snippet(text=result_txt,
+                                source="manually written",
+                                category=active_category,
+                                added=datetime.datetime.now(),
+                                read_count=-1)
+      snippets.append(current_snippet)
 
+      status.set_text("New clip recorded.")
+    update_view(current_snippet)
   elif input == "q":
     quit()
+  elif input == "a":
+    l = sorted(list(categories))
+    try:
+      active_category = l[l.index(active_category) + 1]
+    except IndexError:
+      active_category = l[0]
+
+    update_footer()
   elif input == "d":
     status.set_text("Really delete? Press y to confirm.")
     delete = True
@@ -424,11 +467,11 @@ def unhandled(input):
   elif input == "c":
     pass
   elif input == "s":
-    import subprocess
     p = subprocess.Popen(['xclip', '-o'], stdout=subprocess.PIPE)
     data, _ = p.communicate()
 
     sn = Snippet(text=data,
+                 source=get_chrome_url(),
                  category=active_category,
                  added=datetime.datetime.now(),
                  read_count=-1)
@@ -436,6 +479,7 @@ def unhandled(input):
 
     status.set_text("New clip recorded.")
     update_view(sn)
+    update_footer()
   elif input == " ":
     frame.keypress(sz, 'page down')
   elif input == "?":
@@ -453,11 +497,15 @@ def unhandled(input):
   elif input == "o":
     try:
       os.system("google-chrome %s" % current_snippet.source)
+      subprocess.Popen(['google-chrome', current_snippet.source])
       status.set_text("Opened URL.")
     except AttributeError:
+      import urllib
       url_s = "http://www.google.com/search?&q="
       status.set_text("Source not available; googling phrase.")
-      os.system("google-chrome %s" % current_snippet.source)
+      phrase = " ".join(current_snippet.text.split(" ")[2:12])
+      subprocess.Popen(['google-chrome', url_s + urllib.quote('"%s"' % phrase)],
+                       stdout=subprocess.PIPE)
   delete = False
 
 # Curses module seems to be hosed
