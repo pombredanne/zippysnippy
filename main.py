@@ -22,11 +22,23 @@ DATA_DIRECTORY = "/home/bthomson/.snippets"
 snippets = []
 
 categories = set()
+all_flags = set()
+
+needs_reading = set()
 
 def set_term_title(text, show_extra=True):
   if show_extra:
     text = "%s - %s" % (APP_NAME, text)
   print '"\033]0;%s\007"' % text
+
+def rewrap_text(text):
+  import textwrap
+
+  paragraphs = []
+  for paragraph in text.split("\n\n"):
+    paragraphs.append(textwrap.fill(paragraph, 80))
+  return "\n\n".join(paragraphs)
+
 
 def strip_unicode(text):
   # replace this with a compiled regex if its too slow
@@ -62,18 +74,46 @@ class Snippet(object):
       value = 9
     self._rep_rate = value
 
+  def get_seconds_delay(self):
+    days = 2
+    return int(60*60*24*days)
 
-  def __init__(self, read_count, text, category, added, source=None):
+  def needs_reading(self):
+    delta = datetime.datetime.now() - self.last_read
+    if delta.seconds > self.get_seconds_delay():
+      return True
+    else:
+      return False
+
+  def update_read_time(self):
+    self.last_read = datetime.datetime.now()
+
+  def __init__(self,
+               read_count,
+               text,
+               category,
+               added,
+               last_read,
+               flags=None,
+               source=None):
+
     # If this takes up too much ram, you can memory map the files and store
     # offsets instead
-
     self.text = text
 
     if source:
       self.source = source
 
+    # Stored as a list, not a set, since we do care about ordering in the saved file.
+    if flags:
+      self.flags = flags
+      all_flags.update(flags)
+    else:
+      self.flags = []
+
     self.rep_rate = 5
     self.added = added
+    self.last_read = last_read
     self.read_count = read_count
     self.category = category
 
@@ -81,7 +121,8 @@ class Snippet(object):
 
   def unfscked_text(self):
     # regex replaces single line breaks with spaces and leaves double line breaks
-    return re.subn("(?<!\n)\n(?!\n)", " ", self.text)[0]
+    # any line that starts with "  " keeps the single line break
+    return re.subn("(?<!\n)\n(?!\n|  )", " ", self.text)[0]
 
   def rep_rate_slider_txt(self):
     return {
@@ -98,7 +139,7 @@ class Snippet(object):
 
 def import_simple_fmt():
   """for old manual files"""
-  with open("/home/bthomson/manual_snippets/pua.txt", 'r') as f:
+  with open("fn", 'r') as f:
     data = f.read().decode("UTF-8")
 
   data = strip_unicode(data)
@@ -111,7 +152,7 @@ def import_simple_fmt():
       url, _, entry_text = entry_text.partition("\n")
     if len(entry_text) > 3:
       snippets.append(Snippet(text=entry_text,
-                              category="pua",
+                              category="cat",
                               source=url,
                               added=datetime.datetime.now(),
                               read_count=0))
@@ -132,11 +173,15 @@ def write_to_category_files():
       for snippet in snippets:
         if snippet.category != category:
           continue
-        for param in ['read_count', 'added', 'source']:
-          try:
-            f.write("%s: %s\n" % (param, str(getattr(snippet, param))))
-          except AttributeError:
-            pass # just source sometimes, for now
+        f.write("%s: %s\n" % ('read_count', snippet.read_count))
+        f.write("%s: %s\n" % ('added', snippet.added))
+        f.write("%s: %s\n" % ('last_read', snippet.last_read))
+        try:
+          f.write("%s: %s\n" % ('source', snippet.source))
+        except AttributeError:
+          pass # no source
+        if snippet.flags:
+          f.write("%s: %s\n" % ('flags', ",".join(snippet.flags)))
         f.write("*\n")
         f.write(snippet.text.encode("UTF-8"))
         f.write(SEP)
@@ -165,26 +210,40 @@ def read_category_files():
             elif name == "added":
               p_dict['added'] = datetime.datetime.strptime(value.strip(),
                                                            "%Y-%m-%d %H:%M:%S.%f")
+            elif name == "last_read":
+              p_dict['last_read'] = datetime.datetime.strptime(value.strip(),
+                                                               "%Y-%m-%d %H:%M:%S.%f")
             elif name == "read_count":
               p_dict['read_count'] = int(value)
             elif name == "source":
               p_dict['source'] = value
+            elif name == "flags":
+              p_dict['flags'] = value.split(',')
             else:
               logging.warning("Unknown property '%s'" % name)
 
           try:
-            snippets.append(Snippet(read_count=p_dict.get('read_count', 0),
-                                    text=text,
-                                    source=p_dict.get('source', None),
-                                    category=filename_to_category_name(filename),
-                                    added=p_dict['added']))
+            sn = Snippet(read_count=p_dict.get('read_count', 0),
+                         text=text,
+                         last_read=p_dict.get('last_read', None),
+                         flags=p_dict.get('flags', None),
+                         source=p_dict.get('source', None),
+                         category=filename_to_category_name(filename),
+                         added=p_dict['added'])
+            snippets.append(sn)
+
+            if sn.needs_reading():
+              needs_reading.add(sn)
           except KeyError:
             print "Required property not found"
             print entry
             sys.exit(1)
 
 def get_next_snippet():
-  return random.choice(snippets)
+  if needs_reading:
+    return needs_reading.pop()
+  else:
+    return None
 
 def get_chrome_url():
   path = "/home/bthomson/.config/google-chrome/Default/Local Storage/"
@@ -276,11 +335,19 @@ listbox_content = [
 
 ]
 
-def update_view(snippet):
-  # actually this shouldn't even be in here, move it to return button
-  #snippet.read_count += 1
-  if snippet.read_count < 0:
-     snippet.read_count = 0
+def update_view(snippet, counts_as_read=False):
+  if not snippet:
+    category.set_text("")
+    source.set_text("")
+    date_snipped.set_text("")
+    read_count.set_text("")
+    rep_rate.set_text("")
+    body.set_text("You don't have any snippets that need review!\n\n"
+                  "Try adding some new snippets from the web.")
+    return
+
+  if counts_as_read:
+    snippet.read_count += 1
 
   try:
     source.set_text("      Source: %s" % snippet.source)
@@ -310,7 +377,7 @@ def update_view(snippet):
   set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
 
 
-update_view(current_snippet)
+update_view(current_snippet, counts_as_read=True)
 
 status = urwid.Text("")
 active_cat = urwid.Text("", align='right')
@@ -328,9 +395,9 @@ footer = urwid.AttrMap(urwid.Columns([status, active_cat]), 'footer')
 frame = urwid.Frame(urwid.AttrWrap(listbox, 'body'), header=header, footer=footer)
 
 palette = [
-  ('body','black','light gray', 'standout'),
   ('reverse','light gray','black'),
-  ('header','white','dark red', 'bold'),
+  ('header','white','dark red', 'bold', 'white', '#600'),
+  ('footer','white','black'),
   ('important','dark blue','light gray',('standout','underline')),
   ('editfc','white', 'dark blue', 'bold'),
   ('editbx','light gray', 'dark blue'),
@@ -340,7 +407,6 @@ palette = [
   ('buttnf','white','dark blue','bold'),
 ]
 
-
 HELP_TEXT = """
   %s is designed to be operated almost exclusively with keyboard.
 
@@ -349,8 +415,11 @@ HELP_TEXT = """
   """ % APP_NAME
 
 def quit():
-  import time
-  print '\033c'
+  if current_snippet:
+    current_snippet.update_read_time()
+
+  print '\033c' # clear terminal   TODO: restore old stuff instead
+
   write_to_category_files()
   set_term_title("Terminal", show_extra=False)
   sys.exit(0)
@@ -409,9 +478,13 @@ def unhandled(input):
   sz = screen.get_cols_rows()
   update_footer()
   if input == "enter":
-    import random
+    if not current_snippet:
+      return
+
+    current_snippet.update_read_time()
+
     current_snippet = get_next_snippet()
-    update_view(current_snippet)
+    update_view(current_snippet, counts_as_read=True)
 
     # scroll to top
     frame.keypress(sz, 'page up')
@@ -435,7 +508,7 @@ def unhandled(input):
       status.set_text("Text updated.")
       current_snippet.text = result_txt
 
-    update_view(current_snippet)
+    update_view(current_snippet, counts_as_read=False)
   elif input == "n":
     result_txt = open_editor_with_tmp_file_containing("")
     if len(result_txt) < 3:
@@ -449,7 +522,7 @@ def unhandled(input):
       snippets.append(current_snippet)
 
       status.set_text("New clip recorded.")
-    update_view(current_snippet)
+    update_view(current_snippet, counts_as_read=True)
   elif input == "q":
     quit()
   elif input == "a":
@@ -469,17 +542,25 @@ def unhandled(input):
   elif input == "s":
     p = subprocess.Popen(['xclip', '-o'], stdout=subprocess.PIPE)
     data, _ = p.communicate()
+    data = strip_unicode(data.decode("UTF-8"))
+    data = rewrap_text(data)
+    if data[-1] != "\n":
+      data += "\n"
 
     sn = Snippet(text=data,
                  source=get_chrome_url(),
                  category=active_category,
                  added=datetime.datetime.now(),
-                 read_count=-1)
+                 last_read=datetime.datetime.now(),
+                 read_count=0)
     snippets.append(sn)
 
     status.set_text("New clip recorded.")
     update_view(sn)
+    current_snippet = sn
     update_footer()
+  elif input == "u":
+    status.set_text("undo not yet implemented.")
   elif input == " ":
     frame.keypress(sz, 'page down')
   elif input == "?":
@@ -510,8 +591,10 @@ def unhandled(input):
 
 # Curses module seems to be hosed
 screen = urwid.raw_display.Screen()
+screen.set_terminal_properties(256)
+screen.register_palette(palette)
 
 try:
-  loop = urwid.MainLoop(frame, palette, screen, unhandled_input=unhandled).run()
+  loop = urwid.MainLoop(frame, screen=screen, unhandled_input=unhandled).run()
 except KeyboardInterrupt:
   quit()

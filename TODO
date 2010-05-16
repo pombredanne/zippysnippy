@@ -1,0 +1,44 @@
+Ideas for txt management suite
+
+might be good if stuff was written to disk more frequently
+
+- deduplication
+  - maybe it can run in the background.
+  - per-category, or maybe not.
+  - low priority in any case.
+  - show entries by liklihood of duplication. if user says "not duplicate",
+    store that information somewhere. Or maybe algorithm will be good enough?
+
+- split:
+
+- keys:
+  - s: split (yes, I like this idea)
+        open the edit window, with a notice in comments (like git) to add some kind
+        of separator where you want the split to happen.
+  - c: categorize/recategorize (pops up menu)
+  - ?: help
+  - enter: next entry
+
+- clipboard:
+  - it's probably possible to get the source application for the selection in the
+    X clipboard by going through the C api but its sortof a pain. take a look at
+    the xclip source code for examples, if you care enough to
+  - see also http://tronche.com/gui/x/icccm/
+
+Text:
+
+Snippet Manager is a console-based tool designed to store "snippets" of
+information that you find useful. After a snippet is stored, Snippet Manager
+will present the snippet back to you to read again at gradually increasing
+intervals.
+
+My life has been filled with examples of learning something useful and
+immediately forgetting all about it. Effective learning requires repetition.
+
+Snippet Manager was motivated by my love for (but irreconcilable differences
+with) SuperMemo, a tool for incremental reading and fact memorization.
+
+To be of any use, Snippet Manager must be used _habitually_.
+
+... and is meant to appeal to the unix philosophy of doing one thing well.
+
