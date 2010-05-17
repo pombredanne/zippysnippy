@@ -75,12 +75,13 @@ class Snippet(object):
     self._rep_rate = value
 
   def get_seconds_delay(self):
-    days = 2
+    days = 4
     return int(60*60*24*days)
 
   def needs_reading(self):
     delta = datetime.datetime.now() - self.last_read
-    if delta.seconds > self.get_seconds_delay():
+    dt_seconds = delta.seconds + delta.days * 86400
+    if dt_seconds > self.get_seconds_delay():
       return True
     else:
       return False
@@ -239,12 +240,6 @@ def read_category_files():
             print entry
             sys.exit(1)
 
-def get_next_snippet():
-  if needs_reading:
-    return needs_reading.pop()
-  else:
-    return None
-
 def get_chrome_url():
   path = "/home/bthomson/.config/google-chrome/Default/Local Storage/"
   fn = "chrome-extension_hnicdcgmgpandninpijmdjlcbjdlfjba_0.localstorage"
@@ -277,7 +272,8 @@ def nice_datesince(the_date):
   days_today = (today - datetime.datetime(2008, 1, 1)).days
   days_at_dt = (the_date - datetime.datetime(2008, 1, 1)).days
 
-  delta_seconds = (today - the_date).seconds
+  dt = (today - the_date)
+  delta_seconds = dt.seconds + dt.days*86400
 
   delta_days = days_today - days_at_dt
   if delta_seconds < 60:
@@ -298,8 +294,7 @@ import urwid
 txt_header = ("%s %s - " % (APP_NAME, APP_VERSION) + 
               "Press ? for help")
 
-# regex replaces single line breaks with spaces and leaves double line breaks
-current_snippet = get_next_snippet()
+current_snippet = None
 
 body = urwid.Text("")
 source = urwid.Text("")
@@ -376,8 +371,13 @@ def update_view(snippet, counts_as_read=False):
 
   set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
 
+if needs_reading:
+  second = "Press return to review your first, or add some more from the web."
+else:
+  second = "Try adding some new snippets from the web."
 
-update_view(current_snippet, counts_as_read=True)
+body.set_text("You have %d snippets ready for review.\n\n%s" % (len(needs_reading),
+                                                                second))
 
 status = urwid.Text("")
 active_cat = urwid.Text("", align='right')
@@ -417,8 +417,6 @@ HELP_TEXT = """
 def quit():
   if current_snippet:
     current_snippet.update_read_time()
-
-  print '\033c' # clear terminal   TODO: restore old stuff instead
 
   write_to_category_files()
   set_term_title("Terminal", show_extra=False)
@@ -478,13 +476,12 @@ def unhandled(input):
   sz = screen.get_cols_rows()
   update_footer()
   if input == "enter":
-    if not current_snippet:
-      return
+    if current_snippet:
+      current_snippet.update_read_time()
 
-    current_snippet.update_read_time()
-
-    current_snippet = get_next_snippet()
-    update_view(current_snippet, counts_as_read=True)
+    if needs_reading:
+      current_snippet = needs_reading.pop()
+      update_view(current_snippet, counts_as_read=True)
 
     # scroll to top
     frame.keypress(sz, 'page up')
@@ -525,6 +522,9 @@ def unhandled(input):
     update_view(current_snippet, counts_as_read=True)
   elif input == "q":
     quit()
+  elif input == "p":
+    current_snippet.source = get_chrome_url()
+    status.set_text("Source modified.")
   elif input == "a":
     l = sorted(list(categories))
     try:
@@ -594,7 +594,10 @@ screen = urwid.raw_display.Screen()
 screen.set_terminal_properties(256)
 screen.register_palette(palette)
 
-try:
-  loop = urwid.MainLoop(frame, screen=screen, unhandled_input=unhandled).run()
-except KeyboardInterrupt:
-  quit()
+def main_loop():
+  try:
+    loop = urwid.MainLoop(frame, screen=screen, unhandled_input=unhandled).run()
+  except KeyboardInterrupt:
+    quit()
+
+screen.run_wrapper(main_loop)
