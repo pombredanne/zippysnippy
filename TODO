@@ -132,3 +132,8 @@ Personally, I rarely delete anything unless it was mistakenly added: I just
 adjust rates upward or downward a little bit at each repetition depending on my
 perceived utility of the item. You may find a snippet more useful in a few
 years so it doesn't hurt too much to keep it around at a low rep-rate.
+
+--
+
+Snippet Manager also randomizes the order of rotation so that new associations
+are more likely to form.

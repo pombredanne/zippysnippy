@@ -21,10 +21,16 @@ DATA_DIRECTORY = "/home/bthomson/.snippets"
 
 snippets = []
 
+has_subcategories = set()
+
 categories = set()
 all_flags = set()
 
+source_url_count = collections.defaultdict(int)
+
 needs_reading = set()
+
+next_24_h_count = 0
 
 def set_term_title(text, show_extra=True):
   if show_extra:
@@ -74,17 +80,25 @@ class Snippet(object):
       value = 9
     self._rep_rate = value
 
+  def get_days_delay(self):
+    # TODO: rep rate should have more effect
+    return 2**(min(self.read_count,6)+2) + (5 - self.rep_rate)
+
   def get_seconds_delay(self):
-    days = 3
-    return int(60*60*24*days)
+    return int(60*60*24*self.get_days_delay())
+
+  def get_delta_seconds(self):
+    delta = datetime.datetime.now() - self.last_read
+    return delta.seconds + delta.days * 86400
 
   def needs_reading(self):
-    delta = datetime.datetime.now() - self.last_read
-    dt_seconds = delta.seconds + delta.days * 86400
-    if dt_seconds > self.get_seconds_delay():
+    if self.get_delta_seconds() > self.get_seconds_delay():
       return True
     else:
       return False
+
+  def next_24_h(self):
+    return self.get_seconds_delay() - self.get_delta_seconds() < 86400
 
   def update_read_time(self):
     self.last_read = datetime.datetime.now()
@@ -105,6 +119,7 @@ class Snippet(object):
 
     if source:
       self.source = source
+      source_url_count[source] += 1
 
     # Stored as a list, not a set, since we do care about ordering in the saved file.
     if flags:
@@ -174,7 +189,7 @@ def write_to_one_file():
 
 def write_to_category_files():
   for category in categories:
-    with open("%s/%s.txt" % (DATA_DIRECTORY, category.replace(' ', '_')), 'w') as f:
+    with open(category_name_to_relative_path(category), 'w') as f:
       for snippet in snippets:
         if snippet.category != category:
           continue
@@ -193,8 +208,34 @@ def write_to_category_files():
         f.write(snippet.text.encode("UTF-8"))
         f.write(SEP)
 
-def filename_to_category_name(fn):
-  return fn.split('.')[0].replace("_", " ")
+def relative_path_to_category_name(path):
+  """
+  >>> relative_path_to_category_name('bash/fin.txt')
+  'bash/fin'
+
+  >>> relative_path_to_category_name('bash/fin/fin.txt')
+  'bash/fin'
+  """
+  # TODO: support paths with dots
+  s = path.split('.')[0].replace("_", " ")
+  path1, file_name = os.path.split(s)
+  path2, dir = os.path.split(path1)
+  if file_name == dir:
+    # file with same name as enclosing dir gets cat path truncated
+    cat_path = os.path.join(path2, dir)
+    has_subcategories.add(cat_path)
+  else:
+    cat_path = os.path.join(path2, dir, file_name)
+  return cat_path.replace("/", ".")
+
+def category_name_to_relative_path(cn):
+  path = cn.replace(".", "/")
+  if cn in has_subcategories:
+    path, file_name = os.path.split(path)
+    path = path + file_name + '/' + file_name
+
+  return path.replace(' ', '_') + ".txt"
+
 
 def read_directory(dir):
   import os
@@ -243,13 +284,18 @@ def read_directory(dir):
                        last_read=p_dict.get('last_read', None),
                        flags=p_dict.get('flags', None),
                        source=p_dict.get('source', None),
-                       category=filename_to_category_name(infile),
+                       category=relative_path_to_category_name(infile),
                        rep_rate=p_dict.get('rep_rate', None),
                        added=p_dict['added'])
           snippets.append(sn)
 
           if sn.needs_reading():
             needs_reading.add(sn)
+          else:
+            if sn.next_24_h():
+              global next_24_h_count
+              next_24_h_count += 1
+
         except KeyError:
           print "Required property not found"
           print entry
@@ -355,6 +401,15 @@ listbox_content = [
 
 ]
 
+def update_rep_rate():
+  nr =  "Next rep: %d days from now" % current_snippet.get_days_delay()
+  rep_rate.set_text("    Rep rate: %s <%s>" % (current_snippet.rep_rate_slider_txt(), nr))
+
+def update_footer():
+  status.set_text("Tracking %d snippets in %d categories." % (len(snippets),
+                                                              len(categories)))
+  active_cat.set_text("Active category: %s " % active_category)
+
 def update_view(snippet, counts_as_read=False):
   if not snippet:
     category.set_text("")
@@ -370,7 +425,8 @@ def update_view(snippet, counts_as_read=False):
     snippet.read_count += 1
 
   try:
-    source.set_text("      Source: %s" % snippet.source)
+    ss = snippet.source
+    source.set_text("      Source: %s <%d>" % (ss, source_url_count[ss]))
   except AttributeError:
     source.set_text("      Source: <unknown>")
 
@@ -392,7 +448,8 @@ def update_view(snippet, counts_as_read=False):
   body.set_text(snippet.unfscked_text())
 
   read_count.set_text("        Read: %s" % rs)
-  rep_rate.set_text("    Rep rate: %s" % snippet.rep_rate_slider_txt())
+
+  update_rep_rate()
 
   set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
 
@@ -401,16 +458,14 @@ if needs_reading:
 else:
   second = "Try adding some new snippets from the web."
 
-body.set_text("You have %d snippets ready for review.\n\n%s" % (len(needs_reading),
-                                                                second))
+body.set_text("""You have %d snippets ready for review.
+
+(%d snippets will become ready over the next 24 hours.)
+
+%s""" % (len(needs_reading), next_24_h_count, second))
 
 status = urwid.Text("")
 active_cat = urwid.Text("", align='right')
-
-def update_footer():
-  status.set_text("Tracking %d snippets in %d categories." % (len(snippets),
-                                                              len(categories)))
-  active_cat.set_text("Active category: %s " % active_category)
 
 update_footer()
 
@@ -428,9 +483,15 @@ class CatBox(object):
       lbl = rb.get_label()
       if lbl == "New Root Category":
         txt = self.edit.get_edit_text()
+        for category in categories:
+          if category.startswith(txt):
+            # TODO: not sure this is quite right
+            status.set_text("New subcategory '%s' created." % txt)
+            has_subcategories.add(txt)
+          else:
+            status.set_text("New root category '%s' created." % txt)
         categories.add(txt)
         current_snippet.category = txt
-        status.set_text("New root category '%s' created." % txt)
       elif current_snippet.category == lbl:
         status.set_text("Category not changed.")
       else:
@@ -604,10 +665,10 @@ def unhandled(input):
     frame.keypress(sz, 'down')
   elif input == "l":
     current_snippet.rep_rate += 1
-    rep_rate.set_text("    Rep rate: %s" % current_snippet.rep_rate_slider_txt())
+    update_rep_rate()
   elif input == "h":
     current_snippet.rep_rate -= 1
-    rep_rate.set_text("    Rep rate: %s" % current_snippet.rep_rate_slider_txt())
+    update_rep_rate()
   elif input == "e":
     start_txt = current_snippet.text
     result_txt = open_editor_with_tmp_file_containing(start_txt)
@@ -676,21 +737,24 @@ def unhandled(input):
     data, _ = p.communicate()
     data = strip_unicode(data.decode("UTF-8"))
     data = rewrap_text(data)
-    if data[-1] != "\n":
-      data += "\n"
+    try:
+      if data[-1] != "\n":
+        data += "\n"
+    except IndexError:
+      status.set_text("Error: no clipboard data.")
+    else:
+      sn = Snippet(text=data,
+                   source=get_chrome_url(),
+                   category=active_category,
+                   added=datetime.datetime.now(),
+                   last_read=datetime.datetime.now(),
+                   read_count=0)
+      snippets.append(sn)
 
-    sn = Snippet(text=data,
-                 source=get_chrome_url(),
-                 category=active_category,
-                 added=datetime.datetime.now(),
-                 last_read=datetime.datetime.now(),
-                 read_count=0)
-    snippets.append(sn)
-
-    status.set_text("New clip recorded.")
-    update_view(sn)
-    current_snippet = sn
-    update_footer()
+      status.set_text("New clip recorded.")
+      update_view(sn)
+      current_snippet = sn
+      update_footer()
   elif input == "u":
     status.set_text("undo not yet implemented.")
   elif input == " ":
@@ -700,6 +764,7 @@ def unhandled(input):
   elif input == "y":
     if delete:
       status.set_text("Deleted.")
+      snippets.remove(current_snippet)
   elif input == "o":
     try:
       os.system("google-chrome %s" % current_snippet.source)
