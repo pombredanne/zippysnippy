@@ -21,6 +21,9 @@ might be good if stuff was written to disk more frequently
 
 - unmark: don't mark as read today
 
+- bulk source verify: recheck all sources, mark bad ones
+  - maybe store date of last check
+
 - clipboard:
   - it's probably possible to get the source application for the selection in the
     X clipboard by going through the C api but its sortof a pain. take a look at
@@ -105,3 +108,25 @@ While SuperMemo is a rather monolithic tool, Snippet Manager is meant to appeal
 to the unix philosophy of doing just one thing well. That one thing is storing
 useful text you would like to review again and helping you keep large volumes
 of it neatly organized.
+
+--
+
+Categories are completely optional. Snippet Manager will still manage your
+snippets just fine if you leave everything in the default category.
+
+Some advice: don't go overboard on categories at first. It's actually better to
+create a small number of categories that are overly broad and reclassify or
+create subcategories later as your number of snippets grows and you gain more
+experience with the tool and your own interests.
+
+--
+
+If you're convinced you've gotten all the value there is to get out of a
+particular snippet, you can delete it to remove it from your collection
+completely or set its rep rate to 0 to keep it in the collection but out of
+rotation.
+
+Personally, I rarely delete anything unless it was mistakenly added: I just
+adjust rates upward or downward a little bit at each repetition depending on my
+perceived utility of the item. You may find a snippet more useful in a few
+years so it doesn't hurt too much to keep it around at a low rep-rate.

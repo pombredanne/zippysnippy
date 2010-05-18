@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.6
 # -*- coding: utf-8 -*-
 
 import sys
@@ -75,7 +75,7 @@ class Snippet(object):
     self._rep_rate = value
 
   def get_seconds_delay(self):
-    days = 4
+    days = 3
     return int(60*60*24*days)
 
   def needs_reading(self):
@@ -96,6 +96,7 @@ class Snippet(object):
                added,
                last_read,
                flags=None,
+               rep_rate=None,
                source=None):
 
     # If this takes up too much ram, you can memory map the files and store
@@ -112,7 +113,10 @@ class Snippet(object):
     else:
       self.flags = []
 
-    self.rep_rate = 5
+    if rep_rate:
+      self.rep_rate = rep_rate
+    else:
+      self.rep_rate = 5
     self.added = added
     self.last_read = last_read
     self.read_count = read_count
@@ -183,6 +187,8 @@ def write_to_category_files():
           pass # no source
         if snippet.flags:
           f.write("%s: %s\n" % ('flags', ",".join(snippet.flags)))
+        if snippet.rep_rate != 5:
+          f.write("%s: %s\n" % ('rep_rate', snippet.rep_rate))
         f.write("*\n")
         f.write(snippet.text.encode("UTF-8"))
         f.write(SEP)
@@ -220,6 +226,8 @@ def read_category_files():
               p_dict['source'] = value
             elif name == "flags":
               p_dict['flags'] = value.split(',')
+            elif name == "rep_rate":
+              p_dict['rep_rate'] = int(value)
             else:
               logging.warning("Unknown property '%s'" % name)
 
@@ -230,6 +238,7 @@ def read_category_files():
                          flags=p_dict.get('flags', None),
                          source=p_dict.get('source', None),
                          category=filename_to_category_name(filename),
+                         rep_rate=p_dict.get('rep_rate', None),
                          added=p_dict['added'])
             snippets.append(sn)
 
@@ -308,7 +317,7 @@ blank = urwid.Divider()
 listbox_content = [
   blank,
   urwid.Padding(body, ('fixed left' ,2),
-                          ('fixed right',2), 20),
+                      ('fixed right',2), 20),
 
   blank,
   urwid.Text("**", align='center'),
@@ -372,7 +381,7 @@ def update_view(snippet, counts_as_read=False):
   set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
 
 if needs_reading:
-  second = "Press return to review your first, or add some more from the web."
+  second = "Press return to review your first snippet, or add some new ones."
 else:
   second = "Try adding some new snippets from the web."
 
@@ -389,10 +398,61 @@ def update_footer():
 
 update_footer()
 
-listbox = urwid.ListBox(urwid.SimpleListWalker(listbox_content))
+mainbox = urwid.ListBox(urwid.SimpleListWalker(listbox_content))
+
+class CatBox(object):
+  def __init__(self):
+    self.cat_buttons = []
+    self.pile = urwid.Pile(
+      [urwid.Text("Cats:")] + self.get_catbox_contents(), focus_item=1
+    )
+
+  def cat_change(self, rb, new_state):
+    if new_state == True:
+      lbl = rb.get_label()
+      if lbl == "New Root Category":
+        txt = self.edit.get_edit_text()
+        categories.add(txt)
+        current_snippet.category = txt
+        status.set_text("New root category '%s' created." % txt)
+      elif current_snippet.category == lbl:
+        status.set_text("Category not changed.")
+      else:
+        current_snippet.category = lbl
+        status.set_text("Category changed to: %s." % lbl)
+
+      frame.set_body(mainbox)
+      update_view(current_snippet, counts_as_read=False)
+
+  def get_catbox_contents(self):
+    for x in sorted(categories):
+      r = urwid.RadioButton(self.cat_buttons, x, False)
+      urwid.connect_signal(r, 'change', self.cat_change)
+    r = urwid.RadioButton(self.cat_buttons, "New Root Category", False)
+    urwid.connect_signal(r, 'change', self.cat_change)
+    return self.cat_buttons
+
+  def set_category(self, cat):
+    for button in self.cat_buttons:
+      if button.get_label() == cat:
+        button.set_state(True, do_callback=False)
+
+cb = CatBox()
+cb.edit = urwid.Edit(caption="Category Name: ")
+
+catbox = urwid.ListBox(urwid.SimpleListWalker([
+  cb.edit,
+  blank,
+  urwid.Text("Type until the category you want is highlighted below, or use the arrow keys to scroll through the list. Press Ctrl-C to go back without changing the category."),
+  blank,
+  urwid.Padding(cb.pile, ('fixed left' ,2),
+                         ('fixed right',2), 20),
+  blank,
+]))
+
 header = urwid.AttrMap(urwid.Text(txt_header), 'header')
 footer = urwid.AttrMap(urwid.Columns([status, active_cat]), 'footer')
-frame = urwid.Frame(urwid.AttrWrap(listbox, 'body'), header=header, footer=footer)
+frame = urwid.Frame(urwid.AttrWrap(mainbox, 'body'), header=header, footer=footer)
 
 palette = [
   ('reverse','light gray','black'),
@@ -407,12 +467,41 @@ palette = [
   ('buttnf','white','dark blue','bold'),
 ]
 
-HELP_TEXT = """
-  %s is designed to be operated almost exclusively with keyboard.
+import collections
+Key = collections.namedtuple('Key', 'key help_desc')
 
-  o - open source page in web browser
-  e - edit current snippet in editor
-  """ % APP_NAME
+main_keys = [
+  Key('enter', 'display next rep item (if any)'),
+  Key('c', "change current snippet's category with selector tool"),
+  Key('o', "open current snippet's source page in web browser"),
+  Key('e', 'edit current snippet in editor'),
+  Key('k', 'scroll up'),
+  Key('j', 'scroll down'),
+  Key('h', "decrease current snippet's rep rate"),
+  Key('l', "increase current snippet's rep rate"),
+  Key('n', 'open editor, add as new snippet when done'),
+  Key('p', "set current snippet's source to active Chrome URL"),
+  Key('d', 'delete current snippet (after confirmation)'),
+  Key('s', 'create new snippet from X clipboard'),
+  Key('a', 'cycle active category'),
+  Key('q', 'quit {0}'.format(APP_NAME)),
+]
+
+HELP_TEXT = """
+Although some operations can be performed with a mouse, {0} is designed to be
+operated almost exclusively from the keyboard.
+
+""".format(APP_NAME)
+
+for key in main_keys:
+  HELP_TEXT += "{0} - {1}\n".format(*key)
+
+HELP_TEXT += """
+Press escape to return."""
+
+help_screen = urwid.Filler(urwid.Padding(urwid.Text(HELP_TEXT),
+                                         ('fixed left' ,2),
+                                         ('fixed right',2), 20), 'top')
 
 def quit():
   if current_snippet:
@@ -446,7 +535,7 @@ def open_editor_with_tmp_file_containing(in_text):
 
   # Small delay required or window won't resize
   import time
-  time.sleep(0.100)
+  time.sleep(0.300)
   sigwinch_passthrough(None, None)
 
   try:
@@ -468,13 +557,21 @@ def open_editor_with_tmp_file_containing(in_text):
 
   return out_text
 
+input_hook = None
+
 def unhandled(input):
   global current_snippet
   global active_category
   global delete
+  global input_hook
+
+  if input_hook:
+    input_hook(input)
+    return
 
   sz = screen.get_cols_rows()
   update_footer()
+
   if input == "enter":
     if current_snippet:
       current_snippet.update_read_time()
@@ -525,6 +622,7 @@ def unhandled(input):
   elif input == "p":
     current_snippet.source = get_chrome_url()
     status.set_text("Source modified.")
+    update_view(current_snippet, counts_as_read=False)
   elif input == "a":
     l = sorted(list(categories))
     try:
@@ -538,7 +636,25 @@ def unhandled(input):
     delete = True
     return
   elif input == "c":
-    pass
+    if not current_snippet:
+      status.set_text("(no active snippet)")
+      return
+    status.set_text("Change item category")
+
+    cb.set_category(current_snippet.category)
+
+    frame.set_body(catbox)
+
+    #catbox_content.set_text("(no matches)")
+    #catbox_content.set_text()
+
+    def c_hook(input):
+      global input_hook
+      status.set_text("Category not changed.")
+      input_hook = None
+      frame.set_body(mainbox)
+
+    input_hook = c_hook
   elif input == "s":
     p = subprocess.Popen(['xclip', '-o'], stdout=subprocess.PIPE)
     data, _ = p.communicate()
@@ -564,14 +680,7 @@ def unhandled(input):
   elif input == " ":
     frame.keypress(sz, 'page down')
   elif input == "?":
-    w = urwid.LineBox(urwid.AttrMap(urwid.Text(txt_header), 'header'))
-
-    urwid.Overlay(w, listbox,
-                align="center",
-                valign="middle",
-                width=('relative', 75),
-                height=('relative', 75),
-                )
+    frame.set_body(help_screen)
   elif input == "y":
     if delete:
       status.set_text("Deleted.")
@@ -582,7 +691,7 @@ def unhandled(input):
       status.set_text("Opened URL.")
     except AttributeError:
       import urllib
-      url_s = "http://www.google.com/search?&q="
+      url_s = "http://www.bing.com/search?&q="
       status.set_text("Source not available; googling phrase.")
       phrase = " ".join(current_snippet.text.split(" ")[2:12])
       subprocess.Popen(['google-chrome', url_s + urllib.quote('"%s"' % phrase)],
