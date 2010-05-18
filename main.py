@@ -21,7 +21,7 @@ DATA_DIRECTORY = "/home/bthomson/.snippets"
 
 snippets = []
 
-categories = {}
+categories = set()
 all_flags = set()
 
 needs_reading = set()
@@ -122,7 +122,7 @@ class Snippet(object):
     self.read_count = read_count
     self.category = category
 
-    categories[category] = None
+    categories.add(category)
 
   def unfscked_text(self):
     # regex replaces single line breaks with spaces and leaves double line breaks
@@ -173,7 +173,7 @@ def write_to_one_file():
       f.write(SEP)
 
 def write_to_category_files():
-  for category, subcategories in categories.items():
+  for category in categories:
     with open("%s/%s.txt" % (DATA_DIRECTORY, category.replace(' ', '_')), 'w') as f:
       for snippet in snippets:
         if snippet.category != category:
@@ -267,23 +267,27 @@ def get_chrome_url():
   fn = "chrome-extension_hnicdcgmgpandninpijmdjlcbjdlfjba_0.localstorage"
 
   import sqlite3
-  conn = sqlite3.connect(path+fn)
-  c = conn.cursor()
-  c.execute("""select * from ItemTable""")
 
-  data = {}
+  try:
+    conn = sqlite3.connect(path+fn)
+    c = conn.cursor()
+    c.execute("""select * from ItemTable""")
 
-  for row in c:
-    data[row[0]] = row[1]
+    data = {}
 
-  c.close()
-  conn.close()
+    for row in c:
+      data[row[0]] = row[1]
 
-  return data['url']
+    c.close()
+    conn.close()
+
+    return data['url']
+  except sqllite3.OperationalError:
+    return "<unknown>" # Chrome not active or plugin not installed
 
 #import_simple_fmt()
 read_category_files()
-active_category = sorted(categories.keys())[0]
+active_category = sorted(categories)[0]
 #write_to_one_file()
 #write_to_category_files()
 
