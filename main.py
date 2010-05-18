@@ -21,7 +21,7 @@ DATA_DIRECTORY = "/home/bthomson/.snippets"
 
 snippets = []
 
-categories = set()
+categories = {}
 all_flags = set()
 
 needs_reading = set()
@@ -122,7 +122,7 @@ class Snippet(object):
     self.read_count = read_count
     self.category = category
 
-    categories.add(category)
+    categories[category] = None
 
   def unfscked_text(self):
     # regex replaces single line breaks with spaces and leaves double line breaks
@@ -173,7 +173,7 @@ def write_to_one_file():
       f.write(SEP)
 
 def write_to_category_files():
-  for category in categories:
+  for category, subcategories in categories.items():
     with open("%s/%s.txt" % (DATA_DIRECTORY, category.replace(' ', '_')), 'w') as f:
       for snippet in snippets:
         if snippet.category != category:
@@ -196,58 +196,71 @@ def write_to_category_files():
 def filename_to_category_name(fn):
   return fn.split('.')[0].replace("_", " ")
 
-def read_category_files():
+def read_directory(dir):
   import os
   import glob
 
-  for infile in glob.glob(os.path.join(DATA_DIRECTORY, '*')):
+  for infile in glob.glob(os.path.join(dir, '*')):
     path, filename = os.path.split(infile)
-    if not filename.startswith("."):
-      with open(infile, 'r') as f:
-        data = f.read().decode('UTF-8')
-      entries = re.split(SEP, data)
-      for entry in entries:
-        params, _, text = entry.partition("\n*\n")
-        if params:
-          p_dict = {}
-          for param in params.split("\n"):
-            name, _, value = param.partition(": ")
-            if name == "":
-              pass
-            elif name == "added":
-              p_dict['added'] = datetime.datetime.strptime(value.strip(),
-                                                           "%Y-%m-%d %H:%M:%S.%f")
-            elif name == "last_read":
-              p_dict['last_read'] = datetime.datetime.strptime(value.strip(),
-                                                               "%Y-%m-%d %H:%M:%S.%f")
-            elif name == "read_count":
-              p_dict['read_count'] = int(value)
-            elif name == "source":
-              p_dict['source'] = value
-            elif name == "flags":
-              p_dict['flags'] = value.split(',')
-            elif name == "rep_rate":
-              p_dict['rep_rate'] = int(value)
-            else:
-              logging.warning("Unknown property '%s'" % name)
+    if filename.startswith("."):
+      continue
 
-          try:
-            sn = Snippet(read_count=p_dict.get('read_count', 0),
-                         text=text,
-                         last_read=p_dict.get('last_read', None),
-                         flags=p_dict.get('flags', None),
-                         source=p_dict.get('source', None),
-                         category=filename_to_category_name(filename),
-                         rep_rate=p_dict.get('rep_rate', None),
-                         added=p_dict['added'])
-            snippets.append(sn)
+    if os.path.isdir(infile):
+      read_directory(infile)
+      continue
 
-            if sn.needs_reading():
-              needs_reading.add(sn)
-          except KeyError:
-            print "Required property not found"
-            print entry
-            sys.exit(1)
+    with open(infile, 'r') as f:
+      data = f.read().decode('UTF-8')
+    entries = re.split(SEP, data)
+    for entry in entries:
+      params, _, text = entry.partition("\n*\n")
+      if params:
+        p_dict = {}
+        for param in params.split("\n"):
+          name, _, value = param.partition(": ")
+          if name == "":
+            pass
+          elif name == "added":
+            p_dict['added'] = datetime.datetime.strptime(value.strip(),
+                                                         "%Y-%m-%d %H:%M:%S.%f")
+          elif name == "last_read":
+            p_dict['last_read'] = datetime.datetime.strptime(value.strip(),
+                                                             "%Y-%m-%d %H:%M:%S.%f")
+          elif name == "read_count":
+            p_dict['read_count'] = int(value)
+          elif name == "source":
+            p_dict['source'] = value
+          elif name == "flags":
+            p_dict['flags'] = value.split(',')
+          elif name == "rep_rate":
+            p_dict['rep_rate'] = int(value)
+          else:
+            logging.warning("Unknown property '%s'" % name)
+
+        try:
+          sn = Snippet(read_count=p_dict.get('read_count', 0),
+                       text=text,
+                       last_read=p_dict.get('last_read', None),
+                       flags=p_dict.get('flags', None),
+                       source=p_dict.get('source', None),
+                       category=filename_to_category_name(infile),
+                       rep_rate=p_dict.get('rep_rate', None),
+                       added=p_dict['added'])
+          snippets.append(sn)
+
+          if sn.needs_reading():
+            needs_reading.add(sn)
+        except KeyError:
+          print "Required property not found"
+          print entry
+          sys.exit(1)
+
+def read_category_files():
+  import os
+  os.chdir(DATA_DIRECTORY)
+
+  read_directory('')
+
 
 def get_chrome_url():
   path = "/home/bthomson/.config/google-chrome/Default/Local Storage/"
@@ -270,8 +283,7 @@ def get_chrome_url():
 
 #import_simple_fmt()
 read_category_files()
-active_category = categories.pop()
-categories.add(active_category)
+active_category = sorted(categories.keys())[0]
 #write_to_one_file()
 #write_to_category_files()
 
