@@ -26,6 +26,7 @@ has_subcategories = set()
 categories = set()
 all_flags = set()
 
+# TODO: Remove # and ? from the hashed url
 source_url_count = collections.defaultdict(int)
 
 needs_reading = set()
@@ -401,9 +402,9 @@ listbox_content = [
 
 ]
 
-def update_rep_rate():
-  nr =  "Next rep: %d days from now" % current_snippet.get_days_delay()
-  rep_rate.set_text("    Rep rate: %s <%s>" % (current_snippet.rep_rate_slider_txt(), nr))
+def update_rep_rate(snippet):
+  nr =  "Next rep: %d days from now" % snippet.get_days_delay()
+  rep_rate.set_text("    Rep rate: %s <%s>" % (snippet.rep_rate_slider_txt(), nr))
 
 def update_footer():
   status.set_text("Tracking %d snippets in %d categories." % (len(snippets),
@@ -449,7 +450,7 @@ def update_view(snippet, counts_as_read=False):
 
   read_count.set_text("        Read: %s" % rs)
 
-  update_rep_rate()
+  update_rep_rate(snippet)
 
   set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
 
@@ -665,10 +666,10 @@ def unhandled(input):
     frame.keypress(sz, 'down')
   elif input == "l":
     current_snippet.rep_rate += 1
-    update_rep_rate()
+    update_rep_rate(current_snippet)
   elif input == "h":
     current_snippet.rep_rate -= 1
-    update_rep_rate()
+    update_rep_rate(current_snippet)
   elif input == "e":
     start_txt = current_snippet.text
     result_txt = open_editor_with_tmp_file_containing(start_txt)
