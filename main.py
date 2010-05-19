@@ -26,6 +26,8 @@ has_subcategories = set()
 categories = set()
 all_flags = set()
 
+sticky_source = None
+
 # TODO: Remove # and ? from the hashed url
 source_url_count = collections.defaultdict(int)
 
@@ -637,11 +639,17 @@ def open_editor_with_tmp_file_containing(in_text):
 
 input_hook = None
 
+def get_clip_data():
+  p = subprocess.Popen(['xclip', '-o'], stdout=subprocess.PIPE)
+  data, _ = p.communicate()
+  return strip_unicode(data.decode("UTF-8"))
+
 def unhandled(input):
   global current_snippet
   global active_category
   global delete
   global input_hook
+  global sticky_source
 
   if input_hook:
     input_hook(input)
@@ -709,6 +717,16 @@ def unhandled(input):
       active_category = l[0]
 
     update_footer()
+  elif input == "z":
+    # untested
+    l = sorted(list(categories))
+    l.reverse()
+    try:
+      active_category = l[l.index(active_category) + 1]
+    except IndexError:
+      active_category = l[0]
+
+    update_footer()
   elif input == "d":
     status.set_text("Really delete? Press y to confirm.")
     delete = True
@@ -734,9 +752,8 @@ def unhandled(input):
 
     input_hook = c_hook
   elif input == "s":
-    p = subprocess.Popen(['xclip', '-o'], stdout=subprocess.PIPE)
-    data, _ = p.communicate()
-    data = strip_unicode(data.decode("UTF-8"))
+    data = get_clip_data()
+    data = data.strip(" ")
     data = rewrap_text(data)
     try:
       if data[-1] != "\n":
@@ -744,8 +761,12 @@ def unhandled(input):
     except IndexError:
       status.set_text("Error: no clipboard data.")
     else:
+      if sticky_source:
+        source = sticky_source
+      else:
+        source = get_chrome_url()
       sn = Snippet(text=data,
-                   source=get_chrome_url(),
+                   source=source,
                    category=active_category,
                    added=datetime.datetime.now(),
                    last_read=datetime.datetime.now(),
@@ -756,6 +777,12 @@ def unhandled(input):
       update_view(sn)
       current_snippet = sn
       update_footer()
+  elif input == "S":
+    status.set_text("Source copied from clipboard. Sticky set.")
+    sticky_source = get_clip_data()
+    sticky_source.replace("\n", " ")
+    current_snippet.source = sticky_source
+    update_view(current_snippet)
   elif input == "u":
     status.set_text("undo not yet implemented.")
   elif input == " ":
