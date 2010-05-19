@@ -113,8 +113,10 @@ of it neatly organized.
 
 --
 
-Categories are completely optional. Snippet Manager will still manage your
-snippets just fine if you leave everything in the default category.
+Categories are completely optional: Snippet Manager will still manage your
+snippets just fine if you leave everything in the default category. On the
+other hand, categories provide a powerful way to hierarchiaclly organize
+knowledge and the provided tools let you do it quickly.
 
 Some advice: don't go overboard on categories at first. It's actually better to
 create a small number of categories that are overly broad and reclassify or
@@ -132,3 +134,8 @@ Personally, I rarely delete anything unless it was mistakenly added: I just
 adjust rates upward or downward a little bit at each repetition depending on my
 perceived utility of the item. You may find a snippet more useful in a few
 years so it doesn't hurt too much to keep it around at a low rep-rate.
+
+--
+
+Snippet Manager also randomizes the order of rotation so that new associations
+are more likely to form.
