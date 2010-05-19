@@ -1,0 +1,26 @@
+Traceback (most recent call last):
+  File "main.py", line 712, in <module>
+    screen.run_wrapper(main_loop)
+  File "/usr/local/lib/python2.6/dist-packages/urwid-0.9.9.1-py2.6-linux-i686.egg/urwid/raw_display.py", line 234, in run_wrapper
+    return fn()
+  File "main.py", line 708, in main_loop
+    loop = urwid.MainLoop(frame, screen=screen, unhandled_input=unhandled).run()
+  File "/usr/local/lib/python2.6/dist-packages/urwid-0.9.9.1-py2.6-linux-i686.egg/urwid/main_loop.py", line 168, in run
+    self._run()
+  File "/usr/local/lib/python2.6/dist-packages/urwid-0.9.9.1-py2.6-linux-i686.egg/urwid/main_loop.py", line 188, in _run
+    self.event_loop.run()
+  File "/usr/local/lib/python2.6/dist-packages/urwid-0.9.9.1-py2.6-linux-i686.egg/urwid/main_loop.py", line 498, in run
+    self._loop()
+  File "/usr/local/lib/python2.6/dist-packages/urwid-0.9.9.1-py2.6-linux-i686.egg/urwid/main_loop.py", line 523, in _loop
+    self._watch_files[fd]()
+  File "/usr/local/lib/python2.6/dist-packages/urwid-0.9.9.1-py2.6-linux-i686.egg/urwid/main_loop.py", line 234, in _update
+    self.process_input(keys)
+  File "/usr/local/lib/python2.6/dist-packages/urwid-0.9.9.1-py2.6-linux-i686.egg/urwid/main_loop.py", line 323, in process_input
+    self.unhandled_input(k)
+  File "/usr/local/lib/python2.6/dist-packages/urwid-0.9.9.1-py2.6-linux-i686.egg/urwid/main_loop.py", line 350, in unhandled_input
+    return self._unhandled_input(input)
+  File "main.py", line 623, in unhandled
+    current_snippet.source = get_chrome_url()
+  File "main.py", line 259, in get_chrome_url
+    c.execute("""select * from ItemTable""")
+sqlite3.OperationalError: no such table: ItemTable
