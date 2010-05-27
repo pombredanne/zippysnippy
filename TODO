@@ -1,36 +1,27 @@
-Ideas for txt management suite
+Ideas for txt management suite in approximate order of utility/difficulty
 
-might be good if stuff was written to disk more frequently
-
-- deduplication
+- Add title field, fetch title from html page
+- Unmark: don't mark as read today
+- Unicode data in input causes failure
+- Flags
+- Split
+  - open the edit window, with a notice in comments (like git) to add some kind
+    of separator where you want the split to happen.
+- Write to disk more frequently
+- QuickStart screen for first run without any data.
+- Deduplication
   - maybe it can run in the background.
   - per-category, or maybe not.
   - low priority in any case.
   - show entries by liklihood of duplication. if user says "not duplicate",
     store that information somewhere. Or maybe algorithm will be good enough?
-
-- split:
-
-- keys:
-  - s: split (yes, I like this idea)
-        open the edit window, with a notice in comments (like git) to add some kind
-        of separator where you want the split to happen.
-  - c: categorize/recategorize (pops up menu)
-  - ?: help
-  - enter: next entry
-
-- unmark: don't mark as read today
-
-- bulk source verify: recheck all sources, mark bad ones
+- Bulk source verify: recheck all sources, mark bad ones
   - maybe store date of last check
-
-- clipboard:
+- Clipboard:
   - it's probably possible to get the source application for the selection in the
     X clipboard by going through the C api but its sortof a pain. take a look at
     the xclip source code for examples, if you care enough to
   - see also http://tronche.com/gui/x/icccm/
-
-- QuickStart screen for first run without any data.
 
 ------------------------------------------------------------------------
 
