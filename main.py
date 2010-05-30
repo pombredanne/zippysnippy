@@ -86,8 +86,11 @@ class Snippet(object):
     self._rep_rate = value
 
   def get_days_delay(self):
-    # TODO: rep rate should have more effect
-    return 2**(min(self.read_count,6)+3) + (5 - self.rep_rate) * (self.read_count + 1)
+    abs_min_days = 1
+
+    calc = 2**(min(self.read_count,6)+3) + (5 - self.rep_rate) * (self.read_count + 4)
+
+    return max(calc, abs_min_days)
 
   def get_seconds_delay(self):
     return int(60*60*24*self.get_days_delay())
@@ -604,7 +607,7 @@ def open_editor_with_tmp_file_containing(in_text):
   fn = "st_" + ''.join([random.choice(string.letters) for x in range(20)])
   path = "/tmp/" + fn
   with open(path, 'w') as f:
-    f.write(in_text)
+    f.write(in_text.encode('UTF-8'))
 
   import pexpect, struct, fcntl, termios, signal, sys
   p = pexpect.spawn('vim %s' % path)
@@ -636,7 +639,7 @@ def open_editor_with_tmp_file_containing(in_text):
   handler(None, None)
 
   with open(path, 'r') as f:
-    out_text = f.read()
+    out_text = f.read().decode("UTF-8")
 
   os.remove(path)
 

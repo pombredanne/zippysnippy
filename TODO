@@ -1,7 +1,12 @@
 Ideas for txt management suite in approximate order of utility/difficulty
 
+- Drop to pdb on unhandled exception
+- Randomization: Too often a chunk of related text comes up all at once.
+  - Definitely randomize order when lots of snippets are available
+  - Maybe even randomize days they become available too (otherwise you'll just
+    see the same chunks in increasing waves of time)
 - Add title field, fetch title from html page
-- Unmark: don't mark as read today
+- Unmark: don't mark current item as read
 - Unicode data in input causes failure
 - Flags
 - Split
