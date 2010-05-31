@@ -1,5 +1,5 @@
-#!/usr/bin/env python2.6
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python
+# -*- coding: ascii -*-
 
 import sys
 import logging
@@ -20,6 +20,8 @@ APP_VERSION = "0.1"
 DATA_DIRECTORY = "/home/bthomson/.snippets"
 
 snippets = []
+
+text_filter = True
 
 has_subcategories = set()
 
@@ -84,8 +86,11 @@ class Snippet(object):
     self._rep_rate = value
 
   def get_days_delay(self):
-    # TODO: rep rate should have more effect
-    return 2**(min(self.read_count,6)+2) + (5 - self.rep_rate)
+    abs_min_days = 1
+
+    calc = 2**(min(self.read_count,6)+3) + (5 - self.rep_rate) * (self.read_count + 4)
+
+    return max(calc, abs_min_days)
 
   def get_seconds_delay(self):
     return int(60*60*24*self.get_days_delay())
@@ -235,7 +240,10 @@ def category_name_to_relative_path(cn):
   path = cn.replace(".", "/")
   if cn in has_subcategories:
     path, file_name = os.path.split(path)
-    path = path + file_name + '/' + file_name
+    if path:
+      path = path + '/' + file_name + '/' + file_name
+    else:
+      path = file_name + '/' + file_name
 
   return path.replace(' ', '_') + ".txt"
 
@@ -336,7 +344,7 @@ def get_chrome_url():
 
 #import_simple_fmt()
 read_category_files()
-active_category = sorted(categories)[0]
+active_category = 'misc'
 #write_to_one_file()
 #write_to_category_files()
 
@@ -563,6 +571,7 @@ main_keys = [
   Key('p', "set current snippet's source to active Chrome URL"),
   Key('d', 'delete current snippet (after confirmation)'),
   Key('s', 'create new snippet from X clipboard'),
+  Key('S', 'copy source from clipboard and make sticky'),
   Key('a', 'cycle active category'),
   Key('q', 'quit {0}'.format(APP_NAME)),
 ]
@@ -589,7 +598,6 @@ def quit():
 
   write_to_category_files()
   set_term_title("Terminal", show_extra=False)
-  sys.exit(0)
 
 delete = False
 
@@ -599,7 +607,7 @@ def open_editor_with_tmp_file_containing(in_text):
   fn = "st_" + ''.join([random.choice(string.letters) for x in range(20)])
   path = "/tmp/" + fn
   with open(path, 'w') as f:
-    f.write(in_text)
+    f.write(in_text.encode('UTF-8'))
 
   import pexpect, struct, fcntl, termios, signal, sys
   p = pexpect.spawn('vim %s' % path)
@@ -631,7 +639,7 @@ def open_editor_with_tmp_file_containing(in_text):
   handler(None, None)
 
   with open(path, 'r') as f:
-    out_text = f.read()
+    out_text = f.read().decode("UTF-8")
 
   os.remove(path)
 
@@ -650,6 +658,7 @@ def unhandled(input):
   global delete
   global input_hook
   global sticky_source
+  global text_filter
 
   if input_hook:
     input_hook(input)
@@ -694,17 +703,21 @@ def unhandled(input):
     if len(result_txt) < 3:
       status.set_text("New clip not created.")
     else:
-      current_snippet = Snippet(text=result_txt,
-                                source="manually written",
+      current_snippet = Snippet(read_count=-1,
+                                text=result_txt,
                                 category=active_category,
+                                source="manually written",
                                 added=datetime.datetime.now(),
-                                read_count=-1)
+                                last_read=None,
+                                flags=None,
+                                rep_rate=None)
       snippets.append(current_snippet)
 
       status.set_text("New clip recorded.")
     update_view(current_snippet, counts_as_read=True)
   elif input == "q":
     quit()
+    sys.exit(0)
   elif input == "p":
     current_snippet.source = get_chrome_url()
     status.set_text("Source modified.")
@@ -754,7 +767,8 @@ def unhandled(input):
   elif input == "s":
     data = get_clip_data()
     data = data.strip(" ")
-    data = rewrap_text(data)
+    if text_filter:
+      data = rewrap_text(data)
     try:
       if data[-1] != "\n":
         data += "\n"
@@ -785,6 +799,12 @@ def unhandled(input):
     update_view(current_snippet)
   elif input == "u":
     status.set_text("undo not yet implemented.")
+  elif input == "f":
+    text_filter = not text_filter
+    if text_filter:
+      status.set_text("text filter enabled.")
+    else:
+      status.set_text("text filter disabled.")
   elif input == " ":
     frame.keypress(sz, 'page down')
   elif input == "?":
@@ -817,5 +837,9 @@ def main_loop():
     loop = urwid.MainLoop(frame, screen=screen, unhandled_input=unhandled).run()
   except KeyboardInterrupt:
     quit()
+    sys.exit(0)
+  except:
+    quit()
+    raise
 
 screen.run_wrapper(main_loop)
