@@ -276,8 +276,12 @@ def read_directory(dir):
             p_dict['added'] = datetime.datetime.strptime(value.strip(),
                                                          "%Y-%m-%d %H:%M:%S.%f")
           elif name == "last_read":
-            p_dict['last_read'] = datetime.datetime.strptime(value.strip(),
-                                                             "%Y-%m-%d %H:%M:%S.%f")
+            try:
+              last_read_time = datetime.datetime.strptime(value.strip(),
+                                                               "%Y-%m-%d %H:%M:%S.%f")
+            except ValueError:
+              last_read_time = datetime.datetime.now()
+            p_dict['last_read'] = last_read_time
           elif name == "read_count":
             p_dict['read_count'] = int(value)
           elif name == "source":
@@ -321,7 +325,8 @@ def read_category_files():
 
 def get_chrome_url():
   path = "/home/bthomson/.config/google-chrome/Default/Local Storage/"
-  fn = "chrome-extension_hnicdcgmgpandninpijmdjlcbjdlfjba_0.localstorage"
+  fn = "chrome-extension_hnicdcgmgpandninpijmdjlcbjdlfjba_0.localstorage" #violet
+  #fn = "chrome-extension_pifndjjgfmkdohlnddpikoonfdladamo_0.localstorage" #eeepc
 
   import sqlite3
 
@@ -339,12 +344,12 @@ def get_chrome_url():
     conn.close()
 
     return data['url']
-  except sqllite3.OperationalError:
-    return "<unknown>" # Chrome not active or plugin not installed
+  except sqlite3.OperationalError:
+    return "<unknown>" # Chrome not active, plugin not installed, etc
 
 #import_simple_fmt()
 read_category_files()
-active_category = 'misc'
+active_category = 'pua'
 #write_to_one_file()
 #write_to_category_files()
 
