@@ -321,7 +321,8 @@ def read_category_files():
 
 def get_chrome_url():
   path = "/home/bthomson/.config/google-chrome/Default/Local Storage/"
-  fn = "chrome-extension_hnicdcgmgpandninpijmdjlcbjdlfjba_0.localstorage"
+  #fn = "chrome-extension_hnicdcgmgpandninpijmdjlcbjdlfjba_0.localstorage"
+  fn = "chrome-extension_pifndjjgfmkdohlnddpikoonfdladamo_0.localstorage"
 
   import sqlite3
 
@@ -339,8 +340,8 @@ def get_chrome_url():
     conn.close()
 
     return data['url']
-  except sqllite3.OperationalError:
-    return "<unknown>" # Chrome not active or plugin not installed
+  except sqlite3.OperationalError:
+    return "<unknown>" # Chrome not active, plugin not installed, etc
 
 #import_simple_fmt()
 read_category_files()
