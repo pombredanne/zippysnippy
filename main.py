@@ -70,7 +70,8 @@ def strip_unicode(text):
   text, _ = re.subn(u"\u201D", '"', text)
   text, _ = re.subn(u"\u201F", '"', text)
   text, _ = re.subn(u"\u2036", '"', text)
-  return text
+
+  return text.encode('ascii', 'ignore')
 
 class Snippet(object):
   @property
@@ -168,7 +169,7 @@ class Snippet(object):
 def import_simple_fmt():
   """for old manual files"""
   with open("fn", 'r') as f:
-    data = f.read().decode("UTF-8")
+    data = f.read().decode("UTF-8", 'ignore')
 
   data = strip_unicode(data)
 
@@ -197,24 +198,27 @@ def write_to_one_file():
 
 def write_to_category_files():
   for category in categories:
-    with open(category_name_to_relative_path(category), 'w') as f:
-      for snippet in snippets:
-        if snippet.category != category:
-          continue
-        f.write("%s: %s\n" % ('read_count', snippet.read_count))
-        f.write("%s: %s\n" % ('added', snippet.added))
-        f.write("%s: %s\n" % ('last_read', snippet.last_read))
-        try:
-          f.write("%s: %s\n" % ('source', snippet.source))
-        except AttributeError:
-          pass # no source
-        if snippet.flags:
-          f.write("%s: %s\n" % ('flags', ",".join(snippet.flags)))
-        if snippet.rep_rate != 5:
-          f.write("%s: %s\n" % ('rep_rate', snippet.rep_rate))
-        f.write("*\n")
-        f.write(snippet.text.encode("UTF-8"))
-        f.write(SEP)
+    try:
+      with open(category_name_to_relative_path(category), 'w') as f:
+        for snippet in snippets:
+          if snippet.category != category:
+            continue
+          f.write("%s: %s\n" % ('read_count', snippet.read_count))
+          f.write("%s: %s\n" % ('added', snippet.added))
+          f.write("%s: %s\n" % ('last_read', snippet.last_read))
+          try:
+            f.write("%s: %s\n" % ('source', snippet.source))
+          except AttributeError:
+            pass # no source
+          if snippet.flags:
+            f.write("%s: %s\n" % ('flags', ",".join(snippet.flags)))
+          if snippet.rep_rate != 5:
+            f.write("%s: %s\n" % ('rep_rate', snippet.rep_rate))
+          f.write("*\n")
+          f.write(snippet.text.encode("UTF-8"))
+          f.write(SEP)
+    except IOError:
+      pass # TODO: Log error
 
 def relative_path_to_category_name(path):
   """
@@ -262,7 +266,7 @@ def read_directory(dir):
       continue
 
     with open(infile, 'r') as f:
-      data = f.read().decode('UTF-8')
+      data = f.read().decode('UTF-8', 'ignore')
     entries = re.split(SEP, data)
     for entry in entries:
       params, _, text = entry.partition("\n*\n")
@@ -644,7 +648,7 @@ def open_editor_with_tmp_file_containing(in_text):
   handler(None, None)
 
   with open(path, 'r') as f:
-    out_text = f.read().decode("UTF-8")
+    out_text = f.read().decode("UTF-8", 'ignore')
 
   os.remove(path)
 
@@ -655,7 +659,7 @@ input_hook = None
 def get_clip_data():
   p = subprocess.Popen(['xclip', '-o'], stdout=subprocess.PIPE)
   data, _ = p.communicate()
-  return strip_unicode(data.decode("UTF-8"))
+  return strip_unicode(data.decode("UTF-8", 'ignore'))
 
 def unhandled(input):
   global current_snippet
