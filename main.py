@@ -23,6 +23,9 @@ snippets = []
 
 text_filter = True
 
+# Initially, all categories are up for review
+review_category_lock = False
+
 has_subcategories = set()
 
 categories = set()
@@ -411,13 +414,16 @@ listbox_content = [
                           ('fixed right',2), 20),
 
   urwid.Padding(date_snipped, ('fixed left' ,2),
-                                    ('fixed right',2), 20),
+                              ('fixed right',2), 20),
 
   urwid.Padding(read_count, ('fixed left' ,2),
-                                    ('fixed right',2), 20),
+                            ('fixed right',2), 20),
 
   urwid.Padding(rep_rate, ('fixed left' ,2),
                           ('fixed right',2), 20),
+
+  urwid.Padding(similarity, ('fixed left' ,2),
+                            ('fixed right',2), 20),
 
 ]
 
@@ -425,18 +431,31 @@ def update_rep_rate(snippet):
   nr =  "Next rep: %d days from now" % snippet.get_days_delay()
   rep_rate.set_text("    Rep rate: %s <%s>" % (snippet.rep_rate_slider_txt(), nr))
 
-def update_footer():
-  status.set_text("Tracking %d snippets in %d categories." % (len(snippets),
-                                                              len(categories)))
-  active_cat.set_text("Active category: %s " % active_category)
+def update_similarity(loop, snippet):
+  ss = ", ".join(str(x) for x in bulk_compare(snippet))
+  ss = ss or "No similar entries."
+  similarity.set_text("  Similarity: %s" % ss)
+
+def update_footer(update_status=True):
+  if update_status:
+    status.set_text("Tracking %d snippets in %d categories; %d ready for review." % (
+      len(snippets),
+      len(categories),
+      len(needs_reading),
+    ))
+    active_cat_widget.set_text("Snipping category: %s " % active_category)
+
+  if review_category_lock:
+    txt = review_category_lock
+  else:
+    txt = "[unlocked]"
+  review_cat_widget.set_text("Review cat lock: %s" % txt)
 
 def update_view(snippet, counts_as_read=False):
   if not snippet:
-    category.set_text("")
-    source.set_text("")
-    date_snipped.set_text("")
-    read_count.set_text("")
-    rep_rate.set_text("")
+    for widget in (category, source, date_snipped, read_count, rep_rate):
+      widget.set_text("")
+
     body.set_text("You don't have any snippets that need review!\n\n"
                   "Try adding some new snippets from the web.")
     return
@@ -485,7 +504,8 @@ body.set_text("""You have %d snippets ready for review.
 %s""" % (len(needs_reading), next_24_h_count, second))
 
 status = urwid.Text("")
-active_cat = urwid.Text("", align='right')
+review_cat_widget = urwid.Text("")
+active_cat_widget = urwid.Text("", align='right')
 
 update_footer()
 
@@ -548,7 +568,14 @@ catbox = urwid.ListBox(urwid.SimpleListWalker([
 ]))
 
 header = urwid.AttrMap(urwid.Text(txt_header), 'header')
-footer = urwid.AttrMap(urwid.Columns([status, active_cat]), 'footer')
+
+footer = urwid.AttrMap(
+  urwid.Pile([
+    status,
+    urwid.Columns([review_cat_widget, active_cat_widget]),
+  ]), 'footer'
+)
+
 frame = urwid.Frame(urwid.AttrWrap(mainbox, 'body'), header=header, footer=footer)
 
 palette = [
@@ -569,20 +596,21 @@ Key = collections.namedtuple('Key', 'key help_desc')
 
 main_keys = [
   Key('enter', 'display next rep item (if any)'),
+  Key('a', 'cycle active category'),
   Key('c', "change current snippet's category with selector tool"),
-  Key('o', "open current snippet's source page in web browser"),
+  Key('d', 'delete current snippet (after confirmation)'),
   Key('e', 'edit current snippet in editor'),
-  Key('k', 'scroll up'),
-  Key('j', 'scroll down'),
   Key('h', "decrease current snippet's rep rate"),
+  Key('j', 'scroll down'),
+  Key('k', 'scroll up'),
   Key('l', "increase current snippet's rep rate"),
   Key('n', 'open editor, add as new snippet when done'),
+  Key('o', "open current snippet's source page in web browser"),
   Key('p', "set current snippet's source to active Chrome URL"),
-  Key('d', 'delete current snippet (after confirmation)'),
-  Key('s', 'create new snippet from X clipboard'),
-  Key('S', 'copy source from clipboard and make sticky'),
-  Key('a', 'cycle active category'),
   Key('q', 'quit {0}'.format(APP_NAME)),
+  Key('R', 'lock review topic'),
+  Key('S', 'copy source from clipboard and make sticky'),
+  Key('s', 'create new snippet from X clipboard'),
 ]
 
 HELP_TEXT = """
@@ -668,6 +696,7 @@ def unhandled(input):
   global input_hook
   global sticky_source
   global text_filter
+  global review_category_lock
 
   if input_hook:
     input_hook(input)
@@ -681,7 +710,11 @@ def unhandled(input):
       current_snippet.update_read_time()
 
     if needs_reading:
-      current_snippet = needs_reading.pop()
+      while needs_reading:
+        current_snippet = needs_reading.pop()
+        if not review_category_lock or current_snippet.category == review_category_lock:
+          break
+
       update_view(current_snippet, counts_as_read=True)
 
     # scroll to top
@@ -806,6 +839,10 @@ def unhandled(input):
     sticky_source.replace("\n", " ")
     current_snippet.source = sticky_source
     update_view(current_snippet)
+  elif input == "R":
+    review_category_lock = active_category
+    status.set_text("Review topic locked to %s." % review_category_lock)
+    update_footer(False)
   elif input == "u":
     status.set_text("undo not yet implemented.")
   elif input == "f":
