@@ -2,11 +2,21 @@
   <head>
     <script>
 
+    // Update stored URL when a new tab is selected
     chrome.tabs.onSelectionChanged.addListener(function(tabId, selectInfo) {
       localStorage['windowID'] = selectInfo.windowID;
       tab = chrome.tabs.get(tabId, function (tab) {
         localStorage['url'] = tab.url;
       });
+    });
+
+    // Update stored URL when the selected tab's content changes
+    chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
+      if (tab.selected) {
+        if (changeInfo.url) {
+          localStorage['url'] = changeInfo.url;
+        }
+      }
     });
 
     </script>

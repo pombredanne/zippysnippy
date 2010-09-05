@@ -1,7 +1,7 @@
 {
   "name": "Snippet Manager Ext",
   "version": "1.0",
-  "description": "The first extension that I made.",
+  "description": "Enables source URL grabbing for Snippet Manager.",
   "background_page": "background.html",
   "permissions": [
     "tabs"
