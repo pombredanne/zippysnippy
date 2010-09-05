@@ -21,6 +21,9 @@ DATA_DIRECTORY = "/home/bthomson/.snippets"
 
 snippets = []
 
+# global "main loop" reference
+loop = None
+
 text_filter = True
 
 # Initially, all categories are up for review
@@ -53,6 +56,22 @@ def rewrap_text(text):
     paragraphs.append(textwrap.fill(paragraph, 80))
   return "\n\n".join(paragraphs)
 
+def bulk_compare(base_sn):
+  from difflib import SequenceMatcher
+  match_list = []
+  sm = SequenceMatcher(None)
+  sm.set_seq2(base_sn.text)
+  for snippet in snippets:
+    if snippet is base_sn:
+      continue
+    matches = []
+    sm.set_seq1(snippet.text)
+
+    for a, b, size in sm.get_matching_blocks():
+      if size >= 60:
+        matches.append(size)
+    if matches:
+      yield matches
 
 def strip_unicode(text):
   # replace this with a compiled regex if its too slow
@@ -395,8 +414,8 @@ source = urwid.Text("")
 date_snipped = urwid.Text("")
 read_count = urwid.Text("")
 category = urwid.Text("")
-
 rep_rate = urwid.Text("")
+similarity = urwid.Text("")
 
 blank = urwid.Divider()
 listbox_content = [
@@ -491,6 +510,10 @@ def update_view(snippet, counts_as_read=False):
   update_rep_rate(snippet)
 
   set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
+
+  similarity.set_text("  Similarity: ?")
+  # Slow!
+  loop.set_alarm_in(0.1, update_similarity, user_data=snippet)
 
 if needs_reading:
   second = "Press return to review your first snippet, or add some new ones."
@@ -879,8 +902,11 @@ screen.set_terminal_properties(256)
 screen.register_palette(palette)
 
 def main_loop():
+  global loop
+
   try:
-    loop = urwid.MainLoop(frame, screen=screen, unhandled_input=unhandled).run()
+    loop = urwid.MainLoop(frame, screen=screen, unhandled_input=unhandled)
+    loop.run()
   except KeyboardInterrupt:
     quit()
     sys.exit(0)
