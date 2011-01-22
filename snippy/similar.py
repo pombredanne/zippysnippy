@@ -4,8 +4,11 @@ import re
 import string
 import struct
 
+from difflib import SequenceMatcher
 from functools import partial
 from hashlib import sha1
+
+import common
 
 def bulk_compare(base_sn):
   import string
@@ -28,20 +31,15 @@ def bulk_compare(base_sn):
         yield a, b, size
 
 def compare(snippet1, snippet2):
-  import string
-  from difflib import SequenceMatcher
-
   # You'd think the lambda in SequenceMatcher would allow us to use .text, but
   # no, it matches incorrectly without .unfscked_text()
 
-  match_list = []
   sm = SequenceMatcher(lambda x: x in string.whitespace)
-  sm.set_seq2(snippet1.unfscked_text())
-  sm.set_seq1(snippet2.unfscked_text())
+  sm.set_seq1(snippet1.unfscked_text().lower())
+  sm.set_seq2(snippet2.unfscked_text().lower())
 
   for a, b, size in sm.get_matching_blocks():
-    if size >= 60:
-      yield a, b, size
+    yield a, b, size
 
 def make_trans():
   chars = "\n" # These will be replaced with a space
@@ -73,56 +71,51 @@ def setup_similarity_hashes(snippets):
       except KeyError:
         hash_lookup[int_hash] = [sn]
 
-def find_similar_snippets(text):
+def find_similar_snippets(snippet):
   similar = set()
 
-  for int_hash in get_sentence_hashes(text):
+  for int_hash in get_sentence_hashes(snippet.text):
     try:
       similar.update(hash_lookup[int_hash])
     except KeyError:
       pass
 
+  try:
+    similar.remove(snippet)
+  except KeyError:
+    pass
+
   return similar
 
-def defer_update_similarity(snippet):
-  similarity.set_text("  Similarity: <Checking...>")
-  loop.set_alarm_in(0.1, update_similarity_callback, user_data=snippet)
+def update_similarity_callback(loop, tui):
+  this_snippet = tui.current_snippet
 
-def update_similarity_callback(loop, this_snippet):
-  matches = find_similar_snippets(this_snippet.text)
+  if not hash_lookup:
+    setup_similarity_hashes(common.snippets)
+
+  matches = find_similar_snippets(this_snippet)
   if matches:
-    ss = "%d possible" % len(matches)
+    ss = "%d similar entries" % len(matches)
   else:
     ss = "No similar entries."
-  similarity.set_text("  Similarity: %s" % ss)
+  tui.similarity.set_text("  Similarity: %s" % ss)
+
+  stop = 0
+  body = []
 
   for other_snippet in matches:
     # TODO: change color
+
+    post = this_snippet.unfscked_text()
     for a, b, size in compare(this_snippet, other_snippet):
-      text = snippet.unfscked_text()
+      start = a - stop
+      stop = start + size
 
-      pre = text[:b]
-      hilite = 'important', text[b:b+size]
-      post = text[b+size:]
+      pre = post[:start]
+      hilite = 'important', post[start:stop]
+      body += [pre, hilite]
 
-      body.set_text([pre, hilite, post])
-      return # TODO: process more than one
+      post = post[stop:]
 
-def old_update_similarity_callback(loop, snippet):
-  """Very slow!"""
-  matches = [x for x in bulk_compare(snippet)]
-  if matches:
-    ss = ", ".join(str(match) for match in matches)
-  else:
-    ss = "No similar entries."
-  similarity.set_text("  Similarity: %s" % ss)
-
-  if matches:
-    a, b, size = matches[0]
-    text = snippet.unfscked_text()
-
-    pre = text[:b]
-    hilite = 'important', text[b:b+size]
-    post = text[b+size:]
-
-    body.set_text([pre, hilite, post])
+    tui.body.set_text(body + [post])
+    return # TODO: process more than one

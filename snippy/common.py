@@ -282,6 +282,9 @@ class TUI(object):
       txt = "[unlocked]"
     self.review_cat.set_text("Review cat lock: %s" % txt)
 
+  def defer_update_similarity(self):
+    self.similarity.set_text("  Similarity: <Checking...>")
+    self.loop.set_alarm_in(0.1, similar.update_similarity_callback, user_data=self)
 
 tui = TUI()
 
@@ -438,8 +441,8 @@ def run_urwid_interface():
     Key('enter', 'display next rep item (if any)'),
     Key('a', 'cycle active category'),
     Key('c', "change current snippet's category with selector tool"),
-    Key('D', 'delete current snippet (after confirmation)'),
-    Key('d', 'dump snippets to cPickle file'),
+    Key('d', 'delete current snippet (after confirmation)'),
+    Key('D', 'dump snippets to cPickle file'),
     Key('e', 'edit current snippet in editor'),
     Key('h', "decrease current snippet's rep rate"),
     Key('j', 'scroll down'),
@@ -553,9 +556,11 @@ def run_urwid_interface():
 
       # scroll to top
       tui.frame.keypress(sz, 'page up')
+
+      tui.defer_update_similarity()
     elif input == "k":
       tui.frame.keypress(sz, 'up')
-    elif input == "d":
+    elif input == "D":
       with open("/home/bthomson/zippy_dump", 'w') as f:
         cPickle.dump(snippets, f)
       tui.status.set_text("Dump complete.")
@@ -620,10 +625,10 @@ def run_urwid_interface():
         active_category = l[0]
 
       tui.update_footer()
-    elif input == "D":
+    elif input == "d":
       tui.status.set_text("Really delete? Press y to confirm.")
 
-      def d_hook():
+      def d_hook(input):
         if input == "y":
           tui.status.set_text("Deleted.")
           snippets.remove(tui.current_snippet)
@@ -633,8 +638,6 @@ def run_urwid_interface():
         tui.input_hook = None
 
       tui.input_hook = d_hook
-    elif input == "C":
-      similar.defer_update_similarity(tui.current_snippet)
     elif input == "c":
       if not tui.current_snippet:
         tui.status.set_text("(no active snippet)")
@@ -681,6 +684,7 @@ def run_urwid_interface():
         update_view(sn)
         tui.current_snippet = sn
         tui.update_footer()
+        tui.defer_update_similarity()
     elif input == "S":
       tui.status.set_text("Source copied from clipboard. Sticky set.")
       sticky_source = get_clip_data()
@@ -731,8 +735,8 @@ def run_urwid_interface():
 
   def main_loop():
     try:
-      loop = urwid.MainLoop(tui.frame, screen=screen, unhandled_input=unhandled)
-      loop.run()
+      tui.loop = urwid.MainLoop(tui.frame, screen=screen, unhandled_input=unhandled)
+      tui.loop.run()
     except KeyboardInterrupt:
       quit()
       sys.exit(0)
