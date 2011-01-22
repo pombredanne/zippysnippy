@@ -1,42 +1,71 @@
 Note: ZippySnippy is currently alpha-quality software. I use it to manage
 thousands of snippets, but there are still a lot of rough edges.
 
-ZippySnippy is a console-based tool designed to gradually accumulate
-"snippets" of information that you find interesting or useful. ZippySnippy
-will then present these snippets back to you for review at gradually increasing
-intervals of time.
+Philosophy
+----------
+
+If you read a lot, you probably decide that most of what you have read was
+useless, or, at best, never needs to be read again.
+
+However, 1-10% of what you read you may think: Wow, that's insightful. I
+learned something from that.
+
+ZippySnippy is for that 1-10%. Instead of going on to the next thing and
+completely forgetting about what you've learned, why not save it?
+
+ZippySnippy is a console-based tool designed to gradually accumulate these
+useful "snippets" of information. ZippySnippy will then present these snippets
+back to you for review at gradually increasing intervals of time to make sure
+you don't forget.
 
 Whether these snippets come from ebooks, the web, or your own brain is up to
 you, although ZippySnippy does have features designed to accelerate all 3
 of these common use cases.
 
-Why bother with Snippet Manager? Well, my life has been filled with examples of
-learning or reading something useful and then subsequently and quite quickly
-forgetting all about it. Long-term learning _requires_ repetition, ideally spaced
-at gradually increasing intervals of time. Snippet Manager aims to make this
-process painless enough that you might be motivated to start doing it.
+Long-term learning _requires_ repetition, ideally spaced at gradually
+increasing intervals of time. Snippet Manager aims to make this process
+painless enough that you might be motivated to start doing it.
+
 
 QuickStart
+----------
 
 [...]
 
 Habit
+-----
 
-Snippet Manager should be used at least weekly whether you have anything new to
+If you are not willing to start using Snippet Manager habitually (like you use
+your web browser or email program), it will not be useful to you. You should
+stop reading now because you are wasting your time.
+
+On the other hand, if you develop the habit of using it, it can greatly
+improve the quality of your recreational reading.
+
+ZippySnippy should be used at least weekly whether you have anything new to
 store or not. After some weeks of use, old snippets will come up for review
-every day.
+every day, although it is perfectly okay to let the review queue get big.
 
-Browsing for new knowledge on the web may give more instant gratification than
-reviewing existing knowledge and trying to put it into practice, but your
-lifetime payoff will be better if you strive for mastery over existing
+Browsing for new knowledge on the web gives more instant gratification than
+reviewing existing knowledge. If you use a feed reader, you may find yourself
+opening it several times a day, feeling that something important is right
+around the corner.
+
+But your lifetime payoff will be better if you strive for mastery over existing
 knowledge first.
 
-Many people, if they even _get_ to the point of acquiring useful knowledge in
-their free time (instead of consuming entertainment) make the mistake of
-failing to ever act on 90% of this knowledge. Don't let this be you. Take
-control of your learning process.
+As the years go by you will be surprised by the quality of the material
+ZippySnippy presents. Many items you will have nearly forgotten the content by
+the time it comes up for review again, but you will still judge it to be
+unusually important and relevant.
+
+.. Many people, if they even _get_ to the point of acquiring useful knowledge in
+   their free time (instead of consuming entertainment) make the mistake of
+   failing to ever act on 90% of this knowledge. Don't let this be you. Take
+   control of your learning process.
 
 Motivation and Credit
+---------------------
 
 Snippet Manager was motivated by my love for (but irreconcilable differences
 with) SuperMemo, an excellent Windows-based tool for incremental reading and
@@ -49,25 +78,30 @@ develop a new tool that would solve these problems.
 
 I also felt that the Piotr's goal of reducing knowledge down to fact->recall
 pairs, while admirable, was inapproprate for probably 90% of my knowledge.
-Snippet Manager is not designed to assist with the recall of facts.
+In many of my areas of interest (programming, art, etc) people do not
+necessarily even agree on what the facts are. Thus, Snippet Manager is not
+designed to assist with the recall of facts through clozes, etc.
 
 Snippet Manager uses human-readable and human-editable utf8-encoded text files
 for all stored data. The format is open and documented. This is terribly
 inefficient but important in the event of a bug or partial data loss.
 
 What Snippet Manager Isn't
+--------------------------
 
 Being a console-based tool, Snippet Manager supports only plain text, not HTML
 or other types of markup. Some basic concessions for markup are made where
 appropriate, but Snippet Manager will never include a full HTML parser or
 anything of that nature. This means it is inappropriate for some types of
-knowledge. However, plain text effectively covers about 90% of my knowledge
-representation needs, so this tradeoff seemed worthwhile to help bound the
-complexity of the program (an often under-appreciated concern by folks not
-experienced with the volume of data that can be accumulated in these
-applications over months and years of use).  This restriction is not likely to
-change in the future, so if you require heavy markup or graphics for your
-knowledge, Snippet Manager is definitely not the tool for you.
+knowledge.
+
+Plain text effectively covers about 90% of my knowledge representation needs,
+so this tradeoff seemed worthwhile to help bound the complexity of the program
+(an often under-appreciated concern by folks not experienced with the volume
+of data that can be accumulated in these applications over months and years of
+use). This restriction is not likely to change in the future, so if you
+require heavy markup or graphics for your knowledge, Snippet Manager is
+definitely not the tool for you.
 
 While SuperMemo is a rather monolithic tool, Snippet Manager is meant to appeal
 to the unix philosophy of doing just one thing well. That one thing is storing
@@ -109,3 +143,9 @@ What does ZippySnippy mean?
 
 It's fast, it manages your snippets, and it has 'py' in the name twice because
 it's written in Python :)
+
+Customization
+-------------
+
+ZippySnippy is written in Python using the urwid library for console-based
+applications.
