@@ -11,6 +11,7 @@ import re
 import string
 import subprocess
 import sys
+import urllib
 
 import similar
 import io
@@ -43,6 +44,8 @@ sticky_source = None
 source_url_count = collections.defaultdict(int)
 
 next_24_h_count = 0
+
+is_url = re.compile(r"http://").match
 
 def set_term_title(text, show_extra=True):
   if show_extra:
@@ -192,6 +195,7 @@ for read_ct, text, last_read, flags, source, cat, rep_rate, added in reader:
     if sn.next_24_h():
       next_24_h_count += 1
 
+#active_category = 'misc'
 active_category = 'pua'
 #write_to_one_file()
 #write_to_category_files()
@@ -714,19 +718,20 @@ def run_urwid_interface():
 
       tui.input_hook = new_hook
     elif input == "o":
-      try:
-        os.system("google-chrome %s" % tui.current_snippet.source)
-        subprocess.Popen(['google-chrome', tui.current_snippet.source],
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+      if is_url(tui.current_snippet.source):
+        try:
+          subprocess.Popen(['google-chrome', tui.current_snippet.source],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        tui.status.set_text("Opened URL.")
-      except AttributeError:
-        import urllib
-        url_s = "http://www.google.com/search?&q="
-        tui.status.set_text("Source not available; googling phrase.")
-        phrase = " ".join(tui.current_snippet.text.split(" ")[2:12])
-        subprocess.Popen(['google-chrome', url_s + urllib.quote('"%s"' % phrase)],
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+          tui.status.set_text("Opened URL.")
+          return
+        except AttributeError:
+          pass
+      url_s = "http://www.google.com/search?&q="
+      tui.status.set_text("Source not available; Googling phrase.")
+      phrase = " ".join(tui.current_snippet.text.split(" ")[2:12])
+      subprocess.Popen(['google-chrome', url_s + urllib.quote('"%s"' % phrase)],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 # Curses module seems to be hosed
   screen = urwid.raw_display.Screen()

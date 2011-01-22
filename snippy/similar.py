@@ -60,6 +60,7 @@ def get_sentence_hashes(text):
     yield struct.unpack("q", sha1(raw_sent).digest()[:8])[0]
     sentence = ""
 
+# TODO: add entries to hash_lookup as they are snipped!
 hash_lookup = {}
 def setup_similarity_hashes(snippets):
   """Must be called before any similarity comparisons can be made."""
@@ -98,7 +99,8 @@ def update_similarity_callback(loop, tui):
     ss = "%d similar entries" % len(matches)
   else:
     ss = "No similar entries."
-  tui.similarity.set_text("  Similarity: %s" % ss)
+  ss = "  Similarity: %s" % ss
+  tui.similarity.set_text(ss)
 
   stop = 0
   body = []
@@ -107,7 +109,10 @@ def update_similarity_callback(loop, tui):
     # TODO: change color
 
     post = this_snippet.unfscked_text()
+    tot_size = 0
     for a, b, size in compare(this_snippet, other_snippet):
+      tot_size += size
+
       start = a - stop
       stop = start + size
 
@@ -118,4 +123,5 @@ def update_similarity_callback(loop, tui):
       post = post[stop:]
 
     tui.body.set_text(body + [post])
+    tui.similarity.set_text(ss + ", %d chars" % tot_size)
     return # TODO: process more than one
