@@ -1,23 +1,25 @@
 #!/usr/bin/env python
 # -*- coding: ascii -*-
 
-import sys
-import logging
-import re
-import datetime
 import collections
-import random
-import subprocess
+import datetime
+import logging
 import os
+import random
+import re
+import string
+import subprocess
+import sys
+
+import similar
+import io
+
+from unidecode import unidecode
 
 logging.basicConfig(level=logging.DEBUG)
 
-SEP="-"*77 + "\n"
-
 APP_NAME = "Snippet Manager"
 APP_VERSION = "0.1"
-
-DATA_DIRECTORY = "/home/bthomson/.snippets"
 
 snippets = []
 
@@ -29,17 +31,14 @@ text_filter = True
 # Initially, all categories are up for review
 review_category_lock = False
 
-has_subcategories = set()
-
-categories = set()
 all_flags = set()
+categories = set()
+needs_reading = set()
 
 sticky_source = None
 
 # TODO: Remove # and ? from the hashed url
 source_url_count = collections.defaultdict(int)
-
-needs_reading = set()
 
 next_24_h_count = 0
 
@@ -56,47 +55,8 @@ def rewrap_text(text):
     paragraphs.append(textwrap.fill(paragraph, 80))
   return "\n\n".join(paragraphs)
 
-def bulk_compare(base_sn):
-  import string
-  from difflib import SequenceMatcher
-
-  # You'd think the lambda in SequenceMatcher would allow us to use .text, but
-  # no, it matches incorrectly without .unfscked_text()
-
-  match_list = []
-  sm = SequenceMatcher(lambda x: x in string.whitespace)
-  sm.set_seq2(base_sn.unfscked_text())
-  for snippet in snippets:
-    if snippet is base_sn:
-      continue
-
-    sm.set_seq1(snippet.unfscked_text())
-
-    for a, b, size in sm.get_matching_blocks():
-      if size >= 60:
-        yield a, b, size
-
 def strip_unicode(text):
-  # replace this with a compiled regex if its too slow
-  text, _ = re.subn(u"\u2018", "`", text)
-  text, _ = re.subn(u"\u201B", "`", text)
-  text, _ = re.subn(u"\u2035", "`", text)
-  text, _ = re.subn(u"\u2032", "'", text)
-  text, _ = re.subn(u"\u2019", "'", text)
-  text, _ = re.subn(u"\u2015", "--", text)
-  text, _ = re.subn(u"\u2014", "--", text)
-  text, _ = re.subn(u"\u2013", "-", text)
-  text, _ = re.subn(u"\u2012", "-", text)
-  text, _ = re.subn(u"\u2011", "-", text)
-  text, _ = re.subn(u"\u2010", "-", text)
-  text, _ = re.subn(u"\u2026", "...", text)
-  text, _ = re.subn(u"\u2033", '"', text)
-  text, _ = re.subn(u"\u201C", '"', text)
-  text, _ = re.subn(u"\u201D", '"', text)
-  text, _ = re.subn(u"\u201F", '"', text)
-  text, _ = re.subn(u"\u2036", '"', text)
-
-  return text.encode('ascii', 'ignore')
+  return unidecode(text).encode('ascii', 'ignore')
 
 class Snippet(object):
   @property
@@ -194,167 +154,6 @@ class Snippet(object):
       9: "Less <----|---X> More",
     }[self.rep_rate]
 
-def import_simple_fmt():
-  """for old manual files"""
-  with open("fn", 'r') as f:
-    data = f.read().decode("UTF-8", 'ignore')
-
-  data = strip_unicode(data)
-
-  SEP2="-"*74 + "\n"
-
-  entries = re.split(SEP2, data)
-  for entry_text in entries:
-    if entry_text.startswith("http://"):
-      url, _, entry_text = entry_text.partition("\n")
-    if len(entry_text) > 3:
-      snippets.append(Snippet(text=entry_text,
-                              category="cat",
-                              source=url,
-                              added=datetime.datetime.now(),
-                              read_count=0))
-
-def write_to_one_file():
-  return
-  with open("single-file-output.txt", 'w') as f:
-    for snippet in snippets.values():
-      for param in ['read_count', 'category', 'added']:
-        f.write("%s: %s\n" % (param, str(getattr(snippet, param))))
-      f.write("*\n")
-      f.write(snippet.text)
-      f.write(SEP)
-
-def write_to_category_files():
-  for category in categories:
-    try:
-      with open(category_name_to_relative_path(category), 'w') as f:
-        for snippet in snippets:
-          if snippet.category != category:
-            continue
-          f.write("%s: %s\n" % ('read_count', snippet.read_count))
-          f.write("%s: %s\n" % ('added', snippet.added))
-          f.write("%s: %s\n" % ('last_read', snippet.last_read))
-          try:
-            f.write("%s: %s\n" % ('source', snippet.source))
-          except AttributeError:
-            pass # no source
-          if snippet.flags:
-            f.write("%s: %s\n" % ('flags', ",".join(snippet.flags)))
-          if snippet.rep_rate != 5:
-            f.write("%s: %s\n" % ('rep_rate', snippet.rep_rate))
-          f.write("*\n")
-          f.write(snippet.text.encode("UTF-8"))
-          f.write(SEP)
-    except IOError:
-      pass # TODO: Log error
-
-def relative_path_to_category_name(path):
-  """
-  >>> relative_path_to_category_name('bash/fin.txt')
-  'bash/fin'
-
-  >>> relative_path_to_category_name('bash/fin/fin.txt')
-  'bash/fin'
-  """
-  # TODO: support paths with dots
-  s = path.split('.')[0].replace("_", " ")
-  path1, file_name = os.path.split(s)
-  path2, dir = os.path.split(path1)
-  if file_name == dir:
-    # file with same name as enclosing dir gets cat path truncated
-    cat_path = os.path.join(path2, dir)
-    has_subcategories.add(cat_path)
-  else:
-    cat_path = os.path.join(path2, dir, file_name)
-  return cat_path.replace("/", ".")
-
-def category_name_to_relative_path(cn):
-  path = cn.replace(".", "/")
-  if cn in has_subcategories:
-    path, file_name = os.path.split(path)
-    if path:
-      path = path + '/' + file_name + '/' + file_name
-    else:
-      path = file_name + '/' + file_name
-
-  return path.replace(' ', '_') + ".txt"
-
-
-def read_directory(dir):
-  import os
-  import glob
-
-  for infile in glob.glob(os.path.join(dir, '*')):
-    path, filename = os.path.split(infile)
-    if filename.startswith("."):
-      continue
-
-    if os.path.isdir(infile):
-      read_directory(infile)
-      continue
-
-    with open(infile, 'r') as f:
-      data = f.read().decode('UTF-8', 'ignore')
-    entries = re.split(SEP, data)
-    for entry in entries:
-      params, _, text = entry.partition("\n*\n")
-      if params:
-        p_dict = {}
-        for param in params.split("\n"):
-          name, _, value = param.partition(": ")
-          if name == "":
-            pass
-          elif name == "added":
-            p_dict['added'] = datetime.datetime.strptime(value.strip(),
-                                                         "%Y-%m-%d %H:%M:%S.%f")
-          elif name == "last_read":
-            try:
-              last_read_time = datetime.datetime.strptime(value.strip(),
-                                                               "%Y-%m-%d %H:%M:%S.%f")
-            except ValueError:
-              last_read_time = datetime.datetime.now()
-            p_dict['last_read'] = last_read_time
-          elif name == "read_count":
-            p_dict['read_count'] = int(value)
-          elif name == "source":
-            p_dict['source'] = value
-          elif name == "flags":
-            p_dict['flags'] = value.split(',')
-          elif name == "rep_rate":
-            p_dict['rep_rate'] = int(value)
-          else:
-            logging.warning("Unknown property '%s'" % name)
-
-        try:
-          sn = Snippet(read_count=p_dict.get('read_count', 0),
-                       text=text,
-                       last_read=p_dict.get('last_read', None),
-                       flags=p_dict.get('flags', None),
-                       source=p_dict.get('source', None),
-                       category=relative_path_to_category_name(infile),
-                       rep_rate=p_dict.get('rep_rate', None),
-                       added=p_dict['added'])
-          snippets.append(sn)
-
-          if sn.needs_reading():
-            needs_reading.add(sn)
-          else:
-            if sn.next_24_h():
-              global next_24_h_count
-              next_24_h_count += 1
-
-        except KeyError:
-          print "Required property not found"
-          print entry
-          sys.exit(1)
-
-def read_category_files():
-  import os
-  os.chdir(DATA_DIRECTORY)
-
-  read_directory('')
-
-
 def get_chrome_url():
   path = "/home/bthomson/.config/google-chrome/Default/Local Storage/"
   fn = "chrome-extension_hnicdcgmgpandninpijmdjlcbjdlfjba_0.localstorage" #violet
@@ -380,7 +179,19 @@ def get_chrome_url():
     return "<unknown>" # Chrome not active, plugin not installed, etc
 
 #import_simple_fmt()
-read_category_files()
+
+reader = io.read_category_files()
+for read_ct, text, last_read, flags, source, cat, rep_rate, added in reader:
+  sn = Snippet(read_ct, text, cat, added, last_read, flags, rep_rate, source)
+
+  snippets.append(sn)
+
+  if sn.needs_reading():
+    needs_reading.add(sn)
+  else:
+    if sn.next_24_h():
+      next_24_h_count += 1
+
 active_category = 'pua'
 #write_to_one_file()
 #write_to_category_files()
@@ -410,8 +221,9 @@ def nice_datesince(the_date):
 
 import urwid
 
-txt_header = ("%s %s - " % (APP_NAME, APP_VERSION) + 
-              "Press ? for help")
+txt_header = (
+  "%s %s - " % (APP_NAME, APP_VERSION) + "Press ? for help"
+)
 
 current_snippet = None
 
@@ -470,29 +282,6 @@ def update_footer(update_status=True):
   else:
     txt = "[unlocked]"
   review_cat_widget.set_text("Review cat lock: %s" % txt)
-
-def defer_update_similarity(snippet):
-  similarity.set_text("  Similarity: <Checking...>")
-  loop.set_alarm_in(0.1, update_similarity_callback, user_data=snippet)
-
-def update_similarity_callback(loop, snippet):
-  """Very slow!"""
-  matches = [x for x in bulk_compare(snippet)]
-  if matches:
-    ss = ", ".join(str(match) for match in matches)
-  else:
-    ss = "No similar entries."
-  similarity.set_text("  Similarity: %s" % ss)
-
-  if matches:
-    a, b, size = matches[0]
-    text = snippet.unfscked_text()
-
-    pre = text[:b]
-    hilite = 'important', text[b:b+size]
-    post = text[b+size:]
-
-    body.set_text([pre, hilite, post])
 
 def update_view(snippet, counts_as_read=False):
   if not snippet:
@@ -572,7 +361,7 @@ class CatBox(object):
           if category.startswith(txt):
             # TODO: not sure this is quite right
             status.set_text("New subcategory '%s' created." % txt)
-            has_subcategories.add(txt)
+            io.has_subcategories.add(txt)
           else:
             status.set_text("New root category '%s' created." % txt)
         categories.add(txt)
@@ -678,15 +467,13 @@ def quit():
   if current_snippet:
     current_snippet.update_read_time()
 
-  write_to_category_files()
+  io.write_to_category_files(categories, snippets)
   set_term_title("Terminal", show_extra=False)
 
 delete = False
 
 def open_editor_with_tmp_file_containing(in_text):
-  import random
-  import string
-  fn = "st_" + ''.join([random.choice(string.letters) for x in range(20)])
+  fn = "st_" + ''.join(random.choice(string.letters) for x in range(20))
   path = "/tmp/" + fn
   with open(path, 'w') as f:
     f.write(in_text.encode('UTF-8'))
@@ -832,7 +619,7 @@ def unhandled(input):
     delete = True
     return
   elif input == "C":
-    defer_update_similarity(current_snippet)
+    similar.defer_update_similarity(current_snippet)
   elif input == "c":
     if not current_snippet:
       status.set_text("(no active snippet)")
@@ -902,6 +689,13 @@ def unhandled(input):
     frame.keypress(sz, 'page down')
   elif input == "?":
     frame.set_body(help_screen)
+
+    def new_hook(input):
+      global input_hook
+      input_hook = None
+      frame.set_body(mainbox)
+
+    input_hook = new_hook
   elif input == "y":
     if delete:
       status.set_text("Deleted.")
