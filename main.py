@@ -57,21 +57,24 @@ def rewrap_text(text):
   return "\n\n".join(paragraphs)
 
 def bulk_compare(base_sn):
+  import string
   from difflib import SequenceMatcher
+
+  # You'd think the lambda in SequenceMatcher would allow us to use .text, but
+  # no, it matches incorrectly without .unfscked_text()
+
   match_list = []
-  sm = SequenceMatcher(None)
-  sm.set_seq2(base_sn.text)
+  sm = SequenceMatcher(lambda x: x in string.whitespace)
+  sm.set_seq2(base_sn.unfscked_text())
   for snippet in snippets:
     if snippet is base_sn:
       continue
-    matches = []
-    sm.set_seq1(snippet.text)
+
+    sm.set_seq1(snippet.unfscked_text())
 
     for a, b, size in sm.get_matching_blocks():
       if size >= 60:
-        matches.append(size)
-    if matches:
-      yield matches
+        yield a, b, size
 
 def strip_unicode(text):
   # replace this with a compiled regex if its too slow
@@ -109,11 +112,14 @@ class Snippet(object):
     self._rep_rate = value
 
   def get_days_delay(self):
-    abs_min_days = 1
+    ABS_MIN_DAYS = 1
 
     calc = 2**(min(self.read_count,6)+3) + (5 - self.rep_rate) * (self.read_count + 4)
 
-    return max(calc, abs_min_days)
+    if self.rep_rate == 9:
+      calc = min(7, calc)
+
+    return max(calc, ABS_MIN_DAYS)
 
   def get_seconds_delay(self):
     return int(60*60*24*self.get_days_delay())
@@ -450,11 +456,6 @@ def update_rep_rate(snippet):
   nr =  "Next rep: %d days from now" % snippet.get_days_delay()
   rep_rate.set_text("    Rep rate: %s <%s>" % (snippet.rep_rate_slider_txt(), nr))
 
-def update_similarity(loop, snippet):
-  ss = ", ".join(str(x) for x in bulk_compare(snippet))
-  ss = ss or "No similar entries."
-  similarity.set_text("  Similarity: %s" % ss)
-
 def update_footer(update_status=True):
   if update_status:
     status.set_text("Tracking %d snippets in %d categories; %d ready for review." % (
@@ -469,6 +470,29 @@ def update_footer(update_status=True):
   else:
     txt = "[unlocked]"
   review_cat_widget.set_text("Review cat lock: %s" % txt)
+
+def defer_update_similarity(snippet):
+  similarity.set_text("  Similarity: <Checking...>")
+  loop.set_alarm_in(0.1, update_similarity_callback, user_data=snippet)
+
+def update_similarity_callback(loop, snippet):
+  """Very slow!"""
+  matches = [x for x in bulk_compare(snippet)]
+  if matches:
+    ss = ", ".join(str(match) for match in matches)
+  else:
+    ss = "No similar entries."
+  similarity.set_text("  Similarity: %s" % ss)
+
+  if matches:
+    a, b, size = matches[0]
+    text = snippet.unfscked_text()
+
+    pre = text[:b]
+    hilite = 'important', text[b:b+size]
+    post = text[b+size:]
+
+    body.set_text([pre, hilite, post])
 
 def update_view(snippet, counts_as_read=False):
   if not snippet:
@@ -512,8 +536,6 @@ def update_view(snippet, counts_as_read=False):
   set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
 
   similarity.set_text("  Similarity: ?")
-  # Slow!
-  loop.set_alarm_in(0.1, update_similarity, user_data=snippet)
 
 if needs_reading:
   second = "Press return to review your first snippet, or add some new ones."
@@ -809,6 +831,8 @@ def unhandled(input):
     status.set_text("Really delete? Press y to confirm.")
     delete = True
     return
+  elif input == "C":
+    defer_update_similarity(current_snippet)
   elif input == "c":
     if not current_snippet:
       status.set_text("(no active snippet)")

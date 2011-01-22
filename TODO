@@ -1,6 +1,9 @@
-Ideas for txt management suite in approximate order of utility/difficulty
+Ideas for snippet manager in approximate order of utility/difficulty
 
-- Drop to pdb on unhandled exception
+- Look into ssdeep library for hash comparisons... probably faster than current
+  approach
+  - http://ssdeep.sourceforge.net/usage.html
+  - http://pypi.python.org/pypi/ssdeep
 - Not sure that just storing the number of repetitions is going to cut it. If
   you turn rep rate way up and then turn it down, the number will be huuuuge
   Or, maybe you just need to take date snipped into account. I think that's a
