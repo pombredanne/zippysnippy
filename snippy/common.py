@@ -82,6 +82,9 @@ class Snippet(object):
     if self.rep_rate == 9:
       calc = min(7, calc)
 
+    if self.rep_rate == 8:
+      calc = min(20, calc)
+
     return max(calc, ABS_MIN_DAYS)
 
   def get_seconds_delay(self):
@@ -693,8 +696,12 @@ def run_urwid_interface():
       tui.status.set_text("Source copied from clipboard. Sticky set.")
       sticky_source = get_clip_data()
       sticky_source.replace("\n", " ")
-      tui.current_snippet.source = sticky_source
-      update_view(tui.current_snippet)
+      try:
+        tui.current_snippet.source = sticky_source
+      except AttributeError:
+        pass # No current snippet!
+      else:
+        update_view(tui.current_snippet)
     elif input == "R":
       review_category_lock = active_category
       tui.status.set_text("Review topic locked to %s." % review_category_lock)

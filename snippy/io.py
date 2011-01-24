@@ -142,6 +142,7 @@ def read_directory(dir):
             logging.warning("Unknown property '%s'" % name)
 
         try:
+          text = text.rstrip() + "\n"
           read_count = p_dict.get('read_count', 0)
           last_read = p_dict.get('last_read', None)
           flags = p_dict.get('flags', None)
@@ -149,8 +150,8 @@ def read_directory(dir):
           category = relative_path_to_category_name(infile)
           rep_rate = p_dict.get('rep_rate', None)
           added = p_dict['added']
-          yield (read_count, text, last_read, flags, source, category,
-                 rep_rate, added)
+          yield (read_count, text, last_read, flags, source,
+                 category, rep_rate, added)
 
         except KeyError:
           print "Required property not found"

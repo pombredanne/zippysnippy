@@ -10,36 +10,17 @@ from hashlib import sha1
 
 import common
 
-def bulk_compare(base_sn):
-  import string
-  from difflib import SequenceMatcher
-
-  # You'd think the lambda in SequenceMatcher would allow us to use .text, but
-  # no, it matches incorrectly without .unfscked_text()
-
-  match_list = []
-  sm = SequenceMatcher(lambda x: x in string.whitespace)
-  sm.set_seq2(base_sn.unfscked_text())
-  for snippet in snippets:
-    if snippet is base_sn:
-      continue
-
-    sm.set_seq1(snippet.unfscked_text())
-
-    for a, b, size in sm.get_matching_blocks():
-      if size >= 60:
-        yield a, b, size
-
 def compare(snippet1, snippet2):
-  # You'd think the lambda in SequenceMatcher would allow us to use .text, but
-  # no, it matches incorrectly without .unfscked_text()
-
+  # TODO: convert punct and stuff to spaces with translate so it doesn't screw
+  # up offsets
   sm = SequenceMatcher(lambda x: x in string.whitespace)
   sm.set_seq1(snippet1.unfscked_text().lower())
   sm.set_seq2(snippet2.unfscked_text().lower())
 
+  # Note that the last block will always be of size 0
   for a, b, size in sm.get_matching_blocks():
-    yield a, b, size
+    if size >= 5:
+      yield a, size
 
 def make_trans():
   chars = "\n" # These will be replaced with a space
@@ -102,15 +83,14 @@ def update_similarity_callback(loop, tui):
   ss = "  Similarity: %s" % ss
   tui.similarity.set_text(ss)
 
-  stop = 0
-  body = []
-
   for other_snippet in matches:
     # TODO: change color
 
     post = this_snippet.unfscked_text()
     tot_size = 0
-    for a, b, size in compare(this_snippet, other_snippet):
+    stop = 0
+    body = []
+    for a, size in compare(this_snippet, other_snippet):
       tot_size += size
 
       start = a - stop
@@ -123,5 +103,5 @@ def update_similarity_callback(loop, tui):
       post = post[stop:]
 
     tui.body.set_text(body + [post])
-    tui.similarity.set_text(ss + ", %d chars" % tot_size)
+    tui.similarity.set_text(ss + ", about %d chars" % tot_size)
     return # TODO: process more than one
