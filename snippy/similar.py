@@ -90,14 +90,14 @@ def update_similarity_callback(loop, tui):
     tot_size = 0
     stop = 0
     body = []
-    for a, size in compare(this_snippet, other_snippet):
+    for a, size in sorted(compare(this_snippet, other_snippet)):
       tot_size += size
 
       start = a - stop
       stop = start + size
 
       pre = post[:start]
-      hilite = 'important', post[start:stop]
+      hilite = 'similar', post[start:stop]
       body += [pre, hilite]
 
       post = post[stop:]

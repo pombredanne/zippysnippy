@@ -11,6 +11,7 @@ import re
 import string
 import subprocess
 import sys
+import time
 import urllib
 
 import similar
@@ -26,6 +27,10 @@ APP_VERSION = "0.1"
 # No snippets will have a review range smaller than this regardless of how
 # high you set the importance. Recommended range: 4-60
 ABS_MIN_DAYS = 7 # number of days
+
+# After pressing return to advance to the next item, you can't advance again
+# for this many seconds (prevents accidental key presses)
+NEXT_ITEM_DELAY = 3
 
 snippets = []
 
@@ -57,13 +62,20 @@ def rewrap_text(text):
 
   paragraphs = []
   for paragraph in text.split("\n\n"):
-    paragraphs.append(textwrap.fill(paragraph, 80))
+    paragraphs.append(textwrap.fill(paragraph, 78))
   return "\n\n".join(paragraphs)
 
 def strip_unicode(text):
   return unidecode(text).encode('ascii', 'ignore')
 
+def get_clip_data():
+  p = subprocess.Popen(['xclip', '-o'], stdout=subprocess.PIPE)
+  data, _ = p.communicate()
+  return strip_unicode(data.decode("UTF-8", 'ignore'))
+
 class Snippet(object):
+  """Intended to be completely separate from the user-interface!"""
+
   @property
   def rep_rate(self):
     return self._rep_rate
@@ -77,7 +89,8 @@ class Snippet(object):
     self._rep_rate = value
 
   def get_days_delay(self):
-    calc = 2**(min(self.read_count,6)+3) + (5 - self.rep_rate) * (self.read_count + 4)
+    calc = 2 * (1.7**(min(self.read_count,6)+3) + (5 - self.rep_rate) *
+                (self.read_count + 4))
 
     if self.rep_rate == 9:
       calc = min(7, calc)
@@ -161,7 +174,8 @@ class Snippet(object):
     }[self.rep_rate]
 
 def get_chrome_url():
-  ext_id = "oeijackdkjiaodhkeclhamncpbonflbh"
+  #ext_id = "oeijackdkjiaodhkeclhamncpbonflbh" #violet
+  ext_id = "pifndjjgfmkdohlnddpikoonfdladamo" #eeepc
   path = "/home/bthomson/.config/google-chrome/Default/Local Storage/"
   fn = "chrome-extension_%s_0.localstorage" % ext_id
 
@@ -209,7 +223,7 @@ def nice_datesince(the_date):
   days_today = (today - datetime.datetime(2008, 1, 1)).days
   days_at_dt = (the_date - datetime.datetime(2008, 1, 1)).days
 
-  dt = (today - the_date)
+  dt = today - the_date
   delta_seconds = dt.seconds + dt.days*86400
 
   delta_days = days_today - days_at_dt
@@ -220,11 +234,11 @@ def nice_datesince(the_date):
   elif delta_days == 1:
     return "Yesterday"
   elif delta_days < 7:
-    return str(delta_days) + " days ago"
+    return "%d days ago" % delta_days
   elif delta_days < 365:
-    return "about " + str(delta_days / 7) + " weeks ago"
+    return "about %d weeks ago" % round(delta_days / 7.0)
   else:
-    return "about " + str(delta_days / 365) + " years ago"
+    return "about %0.1f years ago" % (delta_days / 365.0)
 
 def update_view(snippet, counts_as_read=False):
   if not snippet:
@@ -270,9 +284,13 @@ def update_view(snippet, counts_as_read=False):
   tui.similarity.set_text("  Similarity: ?")
 
 class TUI(object):
+  last_next = 0
+
   def update_rep_rate(self, snippet):
-    nr =  "Next rep: %d days from now" % snippet.get_days_delay()
-    self.rep_rate.set_text("    Rep rate: %s <%s>" % (snippet.rep_rate_slider_txt(), nr))
+    self.rep_rate.set_text(["    Rep rate: %s <Next rep: " %
+                           snippet.rep_rate_slider_txt(),
+                           ('standout', "%d days" % snippet.get_days_delay()),
+                           " from now"])
 
   def update_footer(self, update_status=True):
     if update_status:
@@ -291,9 +309,326 @@ class TUI(object):
 
   def defer_update_similarity(self):
     self.similarity.set_text("  Similarity: <Checking...>")
-    self.loop.set_alarm_in(0.1, similar.update_similarity_callback, user_data=self)
+    self.loop.set_alarm_in(0.01, similar.update_similarity_callback, user_data=self)
+
+  def sz(self):
+    return self.screen.get_cols_rows()
+
+  def cmd_next_snippet(self):
+    rem_time = self.last_next - time.time() + NEXT_ITEM_DELAY
+    if rem_time > 0:
+      self.status.set_text("Whoa, slow down!")
+      self.loop.set_alarm_in(rem_time, lambda x,y: self.update_footer())
+      return
+
+    if self.current_snippet:
+      self.current_snippet.update_read_time()
+
+    if needs_reading:
+      while needs_reading:
+        self.current_snippet = needs_reading.pop()
+        if not review_category_lock or self.current_snippet.category == review_category_lock:
+          break
+
+      update_view(self.current_snippet, counts_as_read=True)
+
+    # scroll to top
+    def fn(a,b):
+      for i in range(3):
+        self.frame.keypress(self.sz(), 'page up')
+
+    self.loop.set_alarm_in(0.01, fn)
+    self.defer_update_similarity()
+
+    self.last_next = time.time()
+
+  def cmd_scroll_up(self):
+    self.frame.keypress(self.sz(), 'up')
+
+  def cmd_scroll_down(self):
+    self.frame.keypress(self.sz(), 'down')
+
+  def cmd_dump(self):
+    with open("/home/bthomson/zippy_dump", 'w') as f:
+      cPickle.dump(snippets, f)
+    self.status.set_text("Dump complete.")
+
+  def cmd_rep_rate_up(self):
+    self.current_snippet.rep_rate += 1
+    self.update_rep_rate(self.current_snippet)
+
+  def cmd_rep_rate_down(self):
+    self.current_snippet.rep_rate -= 1
+    self.update_rep_rate(self.current_snippet)
+
+  def cmd_edit_snippet(self):
+    start_txt = self.current_snippet.text
+    result_txt = open_editor_with_tmp_file_containing(start_txt)
+
+    if result_txt == start_txt:
+      self.status.set_text("Edit finished. No changes made.")
+    else:
+      self.status.set_text("Text updated.")
+      self.current_snippet.text = result_txt
+      self.defer_update_similarity()
+
+    update_view(self.current_snippet, counts_as_read=False)
+
+  def cmd_new_snippet(self):
+    result_txt = open_editor_with_tmp_file_containing("")
+    if len(result_txt) < 3:
+      self.status.set_text("New clip not created.")
+    else:
+      self.current_snippet = Snippet(read_count=-1,
+                                     text=result_txt,
+                                     category=active_category,
+                                     source="manually written",
+                                     added=datetime.datetime.now(),
+                                     last_read=None,
+                                     flags=None,
+                                     rep_rate=None)
+      snippets.append(self.current_snippet)
+
+      self.status.set_text("New clip recorded.")
+    update_view(self.current_snippet, counts_as_read=True)
+
+  def cmd_quit(self):
+    quit()
+    sys.exit(0)
+
+  def cmd_pull_source(self):
+    self.current_snippet.source = get_chrome_url()
+    self.status.set_text("Source modified.")
+    update_view(self.current_snippet, counts_as_read=False)
+
+  def cmd_scroll_active_category_up(self):
+    global active_category
+
+    l = sorted(list(categories))
+    try:
+      active_category = l[l.index(active_category) + 1]
+    except IndexError:
+      active_category = l[0]
+
+    self.update_footer()
+
+  def cmd_scroll_active_category_down(self):
+    global active_category
+
+    l = sorted(list(categories))
+    l.reverse()
+    try:
+      active_category = l[l.index(active_category) + 1]
+    except IndexError:
+      active_category = l[0]
+
+    self.update_footer()
+
+  def cmd_delete_current_snippet(self):
+    self.status.set_text("Really delete? Press y to confirm.")
+
+    def d_hook(input):
+      if input == "y":
+        self.status.set_text("Deleted.")
+        snippets.remove(self.current_snippet)
+      else:
+        self.status.set_text("Not deleted.")
+
+      self.input_hook = None
+
+    self.input_hook = d_hook
+
+  def cmd_open_category_selector(self):
+    if not self.current_snippet:
+      self.status.set_text("(no active snippet)")
+      return
+    self.status.set_text("Change item category")
+
+    self.cb.set_category(self.current_snippet.category)
+
+    self.frame.set_body(catbox)
+
+    #catbox_content.set_text("(no matches)")
+    #catbox_content.set_text()
+
+    def c_hook(input):
+      self.status.set_text("Category not changed.")
+      self.input_hook = None
+      self.frame.set_body(self.mainbox)
+
+    self.input_hook = c_hook
+
+  def cmd_clip(self):
+    data = get_clip_data()
+    data = data.strip(" ")
+    if text_filter:
+      data = rewrap_text(data)
+    try:
+      if data[-1] != "\n":
+        data += "\n"
+    except IndexError:
+      self.status.set_text("Error: no clipboard data.")
+    else:
+      if sticky_source:
+        source = sticky_source
+      else:
+        source = get_chrome_url()
+      sn = Snippet(text=data,
+                   source=source,
+                   category=active_category,
+                   added=datetime.datetime.now(),
+                   last_read=datetime.datetime.now(),
+                   read_count=0)
+      snippets.append(sn)
+
+      self.status.set_text("New clip recorded.")
+      update_view(sn)
+      self.current_snippet = sn
+      self.update_footer()
+      self.defer_update_similarity()
+
+  def cmd_set_sticky_source(self):
+    global sticky_source
+
+    self.status.set_text("Source copied from clipboard. Sticky set.")
+    sticky_source = get_clip_data()
+    sticky_source.replace("\n", " ")
+    try:
+      self.current_snippet.source = sticky_source
+    except AttributeError:
+      pass # No current snippet!
+    else:
+      update_view(self.current_snippet)
+
+  def cmd_lock_review_topic(self):
+    global review_category_lock
+
+    review_category_lock = active_category
+    self.status.set_text("Review topic locked to %s." % review_category_lock)
+    self.update_footer(False)
+
+  def cmd_undo(self):
+    self.status.set_text("undo not yet implemented.")
+
+  def cmd_toggle_text_filter(self):
+    global text_filter
+
+    text_filter = not text_filter
+    if text_filter:
+      self.status.set_text("text filter enabled.")
+    else:
+      self.status.set_text("text filter disabled.")
+
+  def cmd_pgdn(self):
+    self.frame.keypress(self.sz(), 'page down')
+
+  def cmd_help(self):
+    self.frame.set_body(self.help_screen)
+
+    def new_hook(input):
+      self.input_hook = None
+      self.frame.set_body(self.mainbox)
+
+    self.input_hook = new_hook
+
+  def cmd_open_in_browser(self):
+    if is_url(self.current_snippet.source):
+      try:
+        subprocess.Popen(['google-chrome', self.current_snippet.source],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        self.status.set_text("Opened URL.")
+        return
+      except AttributeError:
+        pass
+    self.status.set_text("Source not available; Googling phrase.")
+    self.cmd_search_in_google()
+
+  def cmd_search_in_google(self):
+    url_s = "http://www.google.com/search?&q="
+    words = self.current_snippet.text.split(" ")
+    length = random.randint(6, 10)
+    offset = random.randint(length+1, len(words))
+    phrase = " ".join(words[offset-length:offset])
+    subprocess.Popen(['google-chrome', url_s + urllib.quote('"%s"' % phrase)],
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+  input_map = {
+    'D': cmd_dump,
+    'd': cmd_delete_current_snippet,
+    'e': cmd_edit_snippet,
+    'enter': cmd_next_snippet,
+    'h': cmd_rep_rate_down,
+    'j': cmd_scroll_down,
+    'f': cmd_toggle_text_filter,
+    'k': cmd_scroll_up,
+    'l': cmd_rep_rate_up,
+    'n': cmd_new_snippet,
+    'q': cmd_quit,
+    'p': cmd_pull_source,
+    'a': cmd_scroll_active_category_up,
+    'z': cmd_scroll_active_category_down,
+    'c': cmd_open_category_selector,
+    's': cmd_clip,
+    'S': cmd_set_sticky_source,
+    'u': cmd_undo,
+    ' ': cmd_pgdn,
+    '?': cmd_help,
+    'o': cmd_open_in_browser,
+    'O': cmd_search_in_google,
+  }
+
 
 tui = TUI()
+
+def quit():
+  if tui.current_snippet:
+    tui.current_snippet.update_read_time()
+
+  io.write_to_category_files(categories, snippets)
+  set_term_title("Terminal", show_extra=False)
+
+def open_editor_with_tmp_file_containing(in_text):
+  fn = "st_" + ''.join(random.choice(string.letters) for x in range(20))
+  path = "/tmp/" + fn
+  with open(path, 'w') as f:
+    f.write(in_text.encode('UTF-8'))
+
+  import pexpect, struct, fcntl, termios, signal, sys
+  p = pexpect.spawn('vim %s' % path)
+
+  def sigwinch_passthrough(sig, data):
+    """window resize event signal handler"""
+    s = struct.pack("HHHH", 0, 0, 0, 0)
+    a = struct.unpack('hhhh', fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, s))
+    p.setwinsize(a[0], a[1])
+
+  handler = signal.getsignal(signal.SIGWINCH)
+  signal.signal(signal.SIGWINCH, sigwinch_passthrough)
+
+  # Small delay required or window won't resize
+  import time
+  time.sleep(0.300)
+  sigwinch_passthrough(None, None)
+
+  try:
+    p.interact()
+  except OSError:
+    # This happens on successful termination sometimes, for some reason
+    pass
+
+  # Restore existing handler
+  signal.signal(signal.SIGWINCH, handler)
+
+  # Call handler in case window was resized
+  handler(None, None)
+
+  with open(path, 'r') as f:
+    out_text = f.read().decode("UTF-8", 'ignore')
+
+  os.remove(path)
+
+  return out_text
 
 def run_urwid_interface():
   import urwid
@@ -432,7 +767,8 @@ def run_urwid_interface():
     ('reverse','light gray','black'),
     ('header','white','dark red', 'bold', 'white', '#600'),
     ('footer','white','black'),
-    ('important','dark blue','light gray',('standout','underline')),
+    ('standout','light green','black'),
+    ('similar','light red','black'),
     ('editfc','white', 'dark blue', 'bold'),
     ('editbx','light gray', 'dark blue'),
     ('editcp','black','light gray', 'standout'),
@@ -480,274 +816,28 @@ def run_urwid_interface():
                                            ('fixed left' ,2),
                                            ('fixed right',2), 20), 'top')
 
-  def quit():
-    if tui.current_snippet:
-      tui.current_snippet.update_read_time()
-
-    io.write_to_category_files(categories, snippets)
-    set_term_title("Terminal", show_extra=False)
-
-  def open_editor_with_tmp_file_containing(in_text):
-    fn = "st_" + ''.join(random.choice(string.letters) for x in range(20))
-    path = "/tmp/" + fn
-    with open(path, 'w') as f:
-      f.write(in_text.encode('UTF-8'))
-
-    import pexpect, struct, fcntl, termios, signal, sys
-    p = pexpect.spawn('vim %s' % path)
-
-    def sigwinch_passthrough(sig, data):
-      """window resize event signal handler"""
-      s = struct.pack("HHHH", 0, 0, 0, 0)
-      a = struct.unpack('hhhh', fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, s))
-      p.setwinsize(a[0], a[1])
-
-    handler = signal.getsignal(signal.SIGWINCH)
-    signal.signal(signal.SIGWINCH, sigwinch_passthrough)
-
-    # Small delay required or window won't resize
-    import time
-    time.sleep(0.300)
-    sigwinch_passthrough(None, None)
-
-    try:
-      p.interact()
-    except OSError:
-      # This happens on successful termination sometimes, for some reason
-      pass
-
-    # Restore existing handler
-    signal.signal(signal.SIGWINCH, handler)
-
-    # Call handler in case window was resized
-    handler(None, None)
-
-    with open(path, 'r') as f:
-      out_text = f.read().decode("UTF-8", 'ignore')
-
-    os.remove(path)
-
-    return out_text
-
   tui.input_hook = None
 
-  def get_clip_data():
-    p = subprocess.Popen(['xclip', '-o'], stdout=subprocess.PIPE)
-    data, _ = p.communicate()
-    return strip_unicode(data.decode("UTF-8", 'ignore'))
-
   def unhandled(input):
-    global active_category
-    global sticky_source
-    global text_filter
-    global review_category_lock
-
     if tui.input_hook:
       tui.input_hook(input)
       return
 
-    sz = screen.get_cols_rows()
     tui.update_footer()
 
-    if input == "enter":
-      if tui.current_snippet:
-        tui.current_snippet.update_read_time()
+    def still_unhandled(tui):
+      pass
 
-      if needs_reading:
-        while needs_reading:
-          tui.current_snippet = needs_reading.pop()
-          if not review_category_lock or tui.current_snippet.category == review_category_lock:
-            break
-
-        update_view(tui.current_snippet, counts_as_read=True)
-
-      # scroll to top
-      tui.frame.keypress(sz, 'page up')
-
-      tui.defer_update_similarity()
-    elif input == "k":
-      tui.frame.keypress(sz, 'up')
-    elif input == "D":
-      with open("/home/bthomson/zippy_dump", 'w') as f:
-        cPickle.dump(snippets, f)
-      tui.status.set_text("Dump complete.")
-    elif input == "j":
-      tui.frame.keypress(sz, 'down')
-    elif input == "l":
-      tui.current_snippet.rep_rate += 1
-      tui.update_rep_rate(tui.current_snippet)
-    elif input == "h":
-      tui.current_snippet.rep_rate -= 1
-      tui.update_rep_rate(tui.current_snippet)
-    elif input == "e":
-      start_txt = tui.current_snippet.text
-      result_txt = open_editor_with_tmp_file_containing(start_txt)
-
-      if result_txt == start_txt:
-        tui.status.set_text("Edit finished. No changes made.")
-      else:
-        tui.status.set_text("Text updated.")
-        tui.current_snippet.text = result_txt
-
-      update_view(tui.current_snippet, counts_as_read=False)
-    elif input == "n":
-      result_txt = open_editor_with_tmp_file_containing("")
-      if len(result_txt) < 3:
-        tui.status.set_text("New clip not created.")
-      else:
-        tui.current_snippet = Snippet(read_count=-1,
-                                  text=result_txt,
-                                  category=active_category,
-                                  source="manually written",
-                                  added=datetime.datetime.now(),
-                                  last_read=None,
-                                  flags=None,
-                                  rep_rate=None)
-        snippets.append(tui.current_snippet)
-
-        tui.status.set_text("New clip recorded.")
-      update_view(tui.current_snippet, counts_as_read=True)
-    elif input == "q":
-      quit()
-      sys.exit(0)
-    elif input == "p":
-      tui.current_snippet.source = get_chrome_url()
-      tui.status.set_text("Source modified.")
-      update_view(tui.current_snippet, counts_as_read=False)
-    elif input == "a":
-      l = sorted(list(categories))
-      try:
-        active_category = l[l.index(active_category) + 1]
-      except IndexError:
-        active_category = l[0]
-
-      tui.update_footer()
-    elif input == "z":
-      # untested
-      l = sorted(list(categories))
-      l.reverse()
-      try:
-        active_category = l[l.index(active_category) + 1]
-      except IndexError:
-        active_category = l[0]
-
-      tui.update_footer()
-    elif input == "d":
-      tui.status.set_text("Really delete? Press y to confirm.")
-
-      def d_hook(input):
-        if input == "y":
-          tui.status.set_text("Deleted.")
-          snippets.remove(tui.current_snippet)
-        else:
-          tui.status.set_text("Not deleted.")
-
-        tui.input_hook = None
-
-      tui.input_hook = d_hook
-    elif input == "c":
-      if not tui.current_snippet:
-        tui.status.set_text("(no active snippet)")
-        return
-      tui.status.set_text("Change item category")
-
-      tui.cb.set_category(tui.current_snippet.category)
-
-      tui.frame.set_body(catbox)
-
-      #catbox_content.set_text("(no matches)")
-      #catbox_content.set_text()
-
-      def c_hook(input):
-        tui.status.set_text("Category not changed.")
-        tui.input_hook = None
-        tui.frame.set_body(tui.mainbox)
-
-      tui.input_hook = c_hook
-    elif input == "s":
-      data = get_clip_data()
-      data = data.strip(" ")
-      if text_filter:
-        data = rewrap_text(data)
-      try:
-        if data[-1] != "\n":
-          data += "\n"
-      except IndexError:
-        tui.status.set_text("Error: no clipboard data.")
-      else:
-        if sticky_source:
-          source = sticky_source
-        else:
-          source = get_chrome_url()
-        sn = Snippet(text=data,
-                     source=source,
-                     category=active_category,
-                     added=datetime.datetime.now(),
-                     last_read=datetime.datetime.now(),
-                     read_count=0)
-        snippets.append(sn)
-
-        tui.status.set_text("New clip recorded.")
-        update_view(sn)
-        tui.current_snippet = sn
-        tui.update_footer()
-        tui.defer_update_similarity()
-    elif input == "S":
-      tui.status.set_text("Source copied from clipboard. Sticky set.")
-      sticky_source = get_clip_data()
-      sticky_source.replace("\n", " ")
-      try:
-        tui.current_snippet.source = sticky_source
-      except AttributeError:
-        pass # No current snippet!
-      else:
-        update_view(tui.current_snippet)
-    elif input == "R":
-      review_category_lock = active_category
-      tui.status.set_text("Review topic locked to %s." % review_category_lock)
-      tui.update_footer(False)
-    elif input == "u":
-      tui.status.set_text("undo not yet implemented.")
-    elif input == "f":
-      text_filter = not text_filter
-      if text_filter:
-        tui.status.set_text("text filter enabled.")
-      else:
-        tui.status.set_text("text filter disabled.")
-    elif input == " ":
-      tui.frame.keypress(sz, 'page down')
-    elif input == "?":
-      tui.frame.set_body(tui.help_screen)
-
-      def new_hook(input):
-        tui.input_hook = None
-        tui.frame.set_body(tui.mainbox)
-
-      tui.input_hook = new_hook
-    elif input == "o":
-      if is_url(tui.current_snippet.source):
-        try:
-          subprocess.Popen(['google-chrome', tui.current_snippet.source],
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-          tui.status.set_text("Opened URL.")
-          return
-        except AttributeError:
-          pass
-      url_s = "http://www.google.com/search?&q="
-      tui.status.set_text("Source not available; Googling phrase.")
-      phrase = " ".join(tui.current_snippet.text.split(" ")[2:12])
-      subprocess.Popen(['google-chrome', url_s + urllib.quote('"%s"' % phrase)],
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    tui.input_map.get(input, still_unhandled)(tui)
 
 # Curses module seems to be hosed
-  screen = urwid.raw_display.Screen()
-  screen.set_terminal_properties(256)
-  screen.register_palette(palette)
+  tui.screen = urwid.raw_display.Screen()
+  tui.screen.set_terminal_properties(256)
+  tui.screen.register_palette(palette)
 
   def main_loop():
     try:
-      tui.loop = urwid.MainLoop(tui.frame, screen=screen, unhandled_input=unhandled)
+      tui.loop = urwid.MainLoop(tui.frame, screen=tui.screen, unhandled_input=unhandled)
       tui.loop.run()
     except KeyboardInterrupt:
       quit()
@@ -756,4 +846,4 @@ def run_urwid_interface():
       quit()
       raise
 
-  screen.run_wrapper(main_loop)
+  tui.screen.run_wrapper(main_loop)
