@@ -24,10 +24,6 @@ logging.basicConfig(level=logging.DEBUG)
 APP_NAME = "Snippet Manager"
 APP_VERSION = "0.1"
 
-# No snippets will have a review range smaller than this regardless of how
-# high you set the importance. Recommended range: 4-60
-ABS_MIN_DAYS = 7 # number of days
-
 # After pressing return to advance to the next item, you can't advance again
 # for this many seconds (prevents accidental key presses)
 NEXT_ITEM_DELAY = 3
@@ -51,6 +47,9 @@ source_url_count = collections.defaultdict(int)
 next_24_h_count = 0
 
 is_url = re.compile(r"http://").match
+
+def minmax(min_val, val, max_val):
+  return max(min_val, min(max_val, val))
 
 def set_term_title(text, show_extra=True):
   if show_extra:
@@ -89,16 +88,24 @@ class Snippet(object):
     self._rep_rate = value
 
   def get_days_delay(self):
-    calc = 2 * (1.7**(min(self.read_count,6)+3) + (5 - self.rep_rate) *
-                (self.read_count + 4))
+    rc = self.read_count
+    rr = self.rep_rate
+
+    calc = 2 * (1.7**(min(rc,6)+3) + (5 - rr) * (0.5*rc + 5))
+
+    # At least one day between reps
+    calc = max(1, calc)
 
     if self.rep_rate == 9:
-      calc = min(7, calc)
-
-    if self.rep_rate == 8:
-      calc = min(20, calc)
-
-    return max(calc, ABS_MIN_DAYS)
+      return 1
+    elif self.rep_rate == 8:
+      return 7
+    elif self.rep_rate == 7:
+      return minmax(7, calc, 21)
+    elif self.rep_rate == 6:
+      return minmax(7, calc, 42)
+    else:
+      return max(7, calc)
 
   def get_seconds_delay(self):
     return int(60*60*24*self.get_days_delay())
@@ -174,8 +181,8 @@ class Snippet(object):
     }[self.rep_rate]
 
 def get_chrome_url():
-  #ext_id = "oeijackdkjiaodhkeclhamncpbonflbh" #violet
-  ext_id = "pifndjjgfmkdohlnddpikoonfdladamo" #eeepc
+  ext_id = "oeijackdkjiaodhkeclhamncpbonflbh" #violet
+  #ext_id = "pifndjjgfmkdohlnddpikoonfdladamo" #eeepc
   path = "/home/bthomson/.config/google-chrome/Default/Local Storage/"
   fn = "chrome-extension_%s_0.localstorage" % ext_id
 
@@ -281,7 +288,7 @@ def update_view(snippet, counts_as_read=False):
 
   set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
 
-  tui.similarity.set_text("  Similarity: ?")
+  tui.defer_update_similarity()
 
 class TUI(object):
   last_next = 0
@@ -290,7 +297,7 @@ class TUI(object):
     self.rep_rate.set_text(["    Rep rate: %s <Next rep: " %
                            snippet.rep_rate_slider_txt(),
                            ('standout', "%d days" % snippet.get_days_delay()),
-                           " from now"])
+                           " from now>"])
 
   def update_footer(self, update_status=True):
     if update_status:
@@ -338,7 +345,6 @@ class TUI(object):
         self.frame.keypress(self.sz(), 'page up')
 
     self.loop.set_alarm_in(0.01, fn)
-    self.defer_update_similarity()
 
     self.last_next = time.time()
 
@@ -370,7 +376,6 @@ class TUI(object):
     else:
       self.status.set_text("Text updated.")
       self.current_snippet.text = result_txt
-      self.defer_update_similarity()
 
     update_view(self.current_snippet, counts_as_read=False)
 
@@ -446,11 +451,12 @@ class TUI(object):
 
     self.cb.set_category(self.current_snippet.category)
 
-    self.frame.set_body(catbox)
+    self.frame.set_body(self.catbox)
 
     #catbox_content.set_text("(no matches)")
     #catbox_content.set_text()
 
+    # XXX: Buggy
     def c_hook(input):
       self.status.set_text("Category not changed.")
       self.input_hook = None
@@ -485,7 +491,6 @@ class TUI(object):
       update_view(sn)
       self.current_snippet = sn
       self.update_footer()
-      self.defer_update_similarity()
 
   def cmd_set_sticky_source(self):
     global sticky_source
@@ -553,6 +558,14 @@ class TUI(object):
     subprocess.Popen(['google-chrome', url_s + urllib.quote('"%s"' % phrase)],
                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+  def cmd_mark_manually_written(self):
+    try:
+      self.current_snippet.source = "manually written"
+    except AttributeError:
+      self.status.set_text("No snippet to mark!")
+    else:
+      update_view(self.current_snippet)
+
   input_map = {
     'D': cmd_dump,
     'd': cmd_delete_current_snippet,
@@ -564,6 +577,7 @@ class TUI(object):
     'k': cmd_scroll_up,
     'l': cmd_rep_rate_up,
     'n': cmd_new_snippet,
+    'm': cmd_mark_manually_written,
     'q': cmd_quit,
     'p': cmd_pull_source,
     'a': cmd_scroll_active_category_up,
@@ -742,13 +756,14 @@ def run_urwid_interface():
   tui.cb = CatBox()
   tui.cb.edit = urwid.Edit(caption="Category Name: ")
 
-  catbox = urwid.ListBox(urwid.SimpleListWalker([
+  tui.catbox = urwid.ListBox(urwid.SimpleListWalker([
     tui.cb.edit,
     blank,
     urwid.Text("Type until the category you want is highlighted below, or use the arrow keys to scroll through the list. Press Ctrl-C to go back without changing the category."),
     blank,
-    urwid.Padding(tui.cb.pile, ('fixed left' ,2),
-                           ('fixed right',2), 20),
+    urwid.Padding(tui.cb.pile,
+                  ('fixed left' ,2),
+                  ('fixed right',2), 20),
     blank,
   ]))
 

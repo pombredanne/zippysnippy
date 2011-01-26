@@ -86,6 +86,35 @@ Snippet Manager uses human-readable and human-editable utf8-encoded text files
 for all stored data. The format is open and documented. This is terribly
 inefficient but important in the event of a bug or partial data loss.
 
+Similarity Matching
+-------------------
+
+Once you have collected thousands of snippets and see many of them once a year
+or less, it's easy to start forgetting what's in there and accidentally snip
+something twice. To help keep your database clean, snippet manager performs
+similarity checking and alerts you when one snippet is too similar to another
+snippet by highlighting the matching characters.
+
+To keep the similarity match fast, matching snippets are determined through a
+sentence-by-sentence comparison. Non-sentence-ending punctuation and case are
+ignored, so these two sentences would be considered a match:
+
+  thats interESTING man i never thought OF THAT!
+  That's interesting, man; I never thought of that.
+
+However, even *one character* of difference in the words will cause two
+sentences not to match:
+
+  That's interesting, man; I never thought of that.
+  That's enteresting, man; I never thought of that.
+
+If you perform too much spelling correction to a particular snippet such that
+none of the sentences match the original anymore and then you snip that item
+again, the similarity comparison may fail to detect a match.
+
+On the other hand, this form of matching is fast and catches the vast majority
+of duplicates as long as you are snipping paragraph-based content [#similarity_speed]_.
+
 What Snippet Manager Isn't
 --------------------------
 
@@ -99,7 +128,9 @@ Plain text effectively covers about 90% of my knowledge representation needs,
 so this tradeoff seemed worthwhile to help bound the complexity of the program
 (an often under-appreciated concern by folks not experienced with the volume
 of data that can be accumulated in these applications over months and years of
-use). This restriction is not likely to change in the future, so if you
+use).
+
+This restriction is not likely to change in the future, so if you
 require heavy markup or graphics for your knowledge, Snippet Manager is
 definitely not the tool for you.
 
@@ -149,3 +180,7 @@ Customization
 
 ZippySnippy is written in Python using the urwid library for console-based
 applications.
+
+.. [#similarity_speed] Checking speed is O(n) where n is the number of sentences in
+  the new text. The number of entries in the database only matters at
+  application startup, not at entry-check time.
