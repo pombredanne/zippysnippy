@@ -11,6 +11,7 @@ import re
 import string
 import subprocess
 import sys
+import textwrap
 import time
 import urllib
 
@@ -18,6 +19,9 @@ import similar
 import io
 
 from unidecode import unidecode
+from inflect import engine as inflect_engine
+
+inflect = inflect_engine()
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -293,6 +297,24 @@ def update_view(snippet, counts_as_read=False):
 class TUI(object):
   last_next = 0
 
+  def show_info_screen(self):
+    if needs_reading:
+      second = "Press return to review your first snippet, or add some new ones."
+    else:
+      second = "Try adding some new snippets from the web."
+
+    ready_ct = len(needs_reading)
+
+    tui.body.set_text(textwrap.dedent("""
+      You have %s ready for review.
+
+      (%s will become ready over the next 24 hours.)
+
+      %s""" % (inflect.no("snippet", ready_ct),
+               inflect.no("snippet", next_24_h_count),
+               second))[1:])
+
+
   def update_rep_rate(self, snippet):
     self.rep_rate.set_text(["    Rep rate: %s <Next rep: " %
                            snippet.rep_rate_slider_txt(),
@@ -301,9 +323,9 @@ class TUI(object):
 
   def update_footer(self, update_status=True):
     if update_status:
-      self.status.set_text("Tracking %d snippets in %d categories; %d ready for review." % (
-        len(snippets),
-        len(categories),
+      self.status.set_text("Tracking %s in %s; %d are ready for review." % (
+        inflect.no("snippet", len(snippets)),
+        inflect.no("category", len(categories)),
         len(needs_reading),
       ))
       self.active_cat.set_text("Snipping category: %s " % active_category)
@@ -331,19 +353,21 @@ class TUI(object):
     if self.current_snippet:
       self.current_snippet.update_read_time()
 
-    if needs_reading:
-      while needs_reading:
-        self.current_snippet = needs_reading.pop()
-        if not review_category_lock or self.current_snippet.category == review_category_lock:
-          break
+    if not needs_reading:
+      self.show_info_screen()
+      return
 
-      update_view(self.current_snippet, counts_as_read=True)
+    while needs_reading:
+      self.current_snippet = needs_reading.pop()
+      if not review_category_lock or self.current_snippet.category == review_category_lock:
+        break
+
+    update_view(self.current_snippet, counts_as_read=True)
 
     # scroll to top
     def fn(a,b):
       for i in range(3):
         self.frame.keypress(self.sz(), 'page up')
-
     self.loop.set_alarm_in(0.01, fn)
 
     self.last_next = time.time()
@@ -537,15 +561,16 @@ class TUI(object):
     self.input_hook = new_hook
 
   def cmd_open_in_browser(self):
-    if is_url(self.current_snippet.source):
-      try:
-        subprocess.Popen(['google-chrome', self.current_snippet.source],
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
+    try:
+      source = self.current_snippet.source
+    except AttributeError:
+      pass
+    else:
+      if is_url(source):
+        pipe = subprocess.PIPE
+        subprocess.Popen(['google-chrome', source], stdout=pipe, stderr=pipe)
         self.status.set_text("Opened URL.")
         return
-      except AttributeError:
-        pass
     self.status.set_text("Source not available; Googling phrase.")
     self.cmd_search_in_google()
 
@@ -690,18 +715,7 @@ def run_urwid_interface():
 
   ]
 
-
-  if needs_reading:
-    second = "Press return to review your first snippet, or add some new ones."
-  else:
-    second = "Try adding some new snippets from the web."
-
-  tui.body.set_text("""You have %d snippets ready for review.
-
-  (%d snippets will become ready over the next 24 hours.)
-
-  %s""" % (len(needs_reading), next_24_h_count, second))
-
+  tui.show_info_screen()
   tui.status = urwid.Text("")
   tui.review_cat = urwid.Text("")
   tui.active_cat = urwid.Text("", align='right')
