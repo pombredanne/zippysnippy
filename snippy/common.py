@@ -5,6 +5,7 @@ import collections
 import cPickle
 import datetime
 import logging
+import math
 import os
 import random
 import re
@@ -23,9 +24,11 @@ from inflect import engine as inflect_engine
 
 inflect = inflect_engine()
 
+days_random = random.Random()
+
 logging.basicConfig(level=logging.DEBUG)
 
-APP_NAME = "Snippet Manager"
+APP_NAME = "ZippySnippy"
 APP_VERSION = "0.1"
 
 # After pressing return to advance to the next item, you can't advance again
@@ -33,8 +36,6 @@ APP_VERSION = "0.1"
 NEXT_ITEM_DELAY = 3
 
 snippets = []
-
-text_filter = True
 
 # Initially, all categories are up for review
 review_category_lock = False
@@ -45,12 +46,24 @@ needs_reading = set()
 
 sticky_source = None
 
-# TODO: Remove # and ? from the hashed url
-source_url_count = collections.defaultdict(int)
+# TODO: Remove # from the hashed url
+source_count = collections.defaultdict(int)
 
 next_24_h_count = 0
 
 is_url = re.compile(r"http://").match
+
+def calc_days(rc, rr, length_factor, random_factor):
+  # rc: read_count, varies between 0 and inf
+  # rr: rep_rate, varies between 1 and 9
+  # length_factor varies between 1.0 and 3.0
+  # random_factor varies between 0.5 and 1.5
+
+  return (
+    1.7**( min(rc,6) + 3 )
+             +
+    (5 - rr) * (0.5*rc + 5.0)
+  ) * length_factor * random_factor
 
 def minmax(min_val, val, max_val):
   return max(min_val, min(max_val, val))
@@ -92,24 +105,55 @@ class Snippet(object):
     self._rep_rate = value
 
   def get_days_delay(self):
-    rc = self.read_count
-    rr = self.rep_rate
 
-    calc = 2 * (1.7**(min(rc,6)+3) + (5 - rr) * (0.5*rc + 5))
+    # length_factor
+    #
+    # text len | length_factor
+    #       50 | 1.00
+    #       70 | 1.08
+    #      300 | 1.70
+    #      300 | 1.70
+    #     3000 | 2.66
+    #     9000 | 3.00
+    length_factor = minmax(1.0, 0.42*math.log(len(self.text)) - 0.7, 3.0)
+
+    # random_factor
+    #
+    # We use the text as a seed so it doesn't change from run to run.
+    #
+    # The logic in having the range be so wide is that it's more important to
+    # jiggle around snippets which are all clipped at the same time (and
+    # probably from the same source) than it is to have consistent delays.
+    days_random.seed(self.text)
+    random_factor = days_random.uniform(0.5, 1.5)
+    min_rand_factor = days_random.uniform(0.8, 1.2)
+
+    calc = calc_days(
+      self.read_count,
+      self.rep_rate,
+      length_factor,
+      random_factor,
+    )
 
     # At least one day between reps
     calc = max(1, calc)
 
+    constrain = length_factor * random_factor
+
+    # All rep_rates except "9" have a ~7-day minimum enforced.
+    minimum = 7.0 * min_rand_factor
+
+    # Constrain different rep_rates to specific ranges.
     if self.rep_rate == 9:
-      return 1
+      return max(1.0 * min_rand_factor, constrain)
     elif self.rep_rate == 8:
-      return 7
+      return minmax(minimum, calc, 7.0 * constrain)
     elif self.rep_rate == 7:
-      return minmax(7, calc, 21)
+      return minmax(minimum, calc, 14.0 * constrain)
     elif self.rep_rate == 6:
-      return minmax(7, calc, 42)
+      return minmax(minimum, calc, 21.0 * constrain)
     else:
-      return max(7, calc)
+      return max(minimum, calc)
 
   def get_seconds_delay(self):
     return int(60*60*24*self.get_days_delay())
@@ -119,12 +163,9 @@ class Snippet(object):
     return delta.seconds + delta.days * 86400
 
   def needs_reading(self):
-    if self.get_delta_seconds() > self.get_seconds_delay():
-      return True
-    else:
-      return False
+    return self.get_delta_seconds() > self.get_seconds_delay()
 
-  def next_24_h(self):
+  def will_be_ready_in_next_24_h(self):
     return self.get_seconds_delay() - self.get_delta_seconds() < 86400
 
   def update_read_time(self):
@@ -146,7 +187,7 @@ class Snippet(object):
 
     if source:
       self.source = source
-      source_url_count[source] += 1
+      source_count[source] += 1
 
     # Stored as a list, not a set, since we do care about ordering in the saved file.
     if flags:
@@ -211,8 +252,8 @@ def get_chrome_url():
 
 #import_simple_fmt()
 
-reader = io.read_category_files()
-for read_ct, text, last_read, flags, source, cat, rep_rate, added in reader:
+snippet_reader = io.read_category_files()
+for read_ct, text, last_read, flags, source, cat, rep_rate, added in snippet_reader:
   sn = Snippet(read_ct, text, cat, added, last_read, flags, rep_rate, source)
 
   snippets.append(sn)
@@ -220,7 +261,7 @@ for read_ct, text, last_read, flags, source, cat, rep_rate, added in reader:
   if sn.needs_reading():
     needs_reading.add(sn)
   else:
-    if sn.next_24_h():
+    if sn.will_be_ready_in_next_24_h():
       next_24_h_count += 1
 
 #active_category = 'misc'
@@ -264,8 +305,10 @@ def update_view(snippet, counts_as_read=False):
     snippet.read_count += 1
 
   try:
-    ss = snippet.source
-    tui.source.set_text("      Source: %s <%d>" % (ss, source_url_count[ss]))
+    sdisp = ss = snippet.source
+    if is_url(ss):
+      sdisp = ss[7:]
+    tui.source.set_text("      Source: %s <%d>" % (sdisp, source_count[ss]))
   except AttributeError:
     tui.source.set_text("      Source: <unknown>")
 
@@ -276,7 +319,7 @@ def update_view(snippet, counts_as_read=False):
   tui.category.set_text("    Category: %s" % snippet.category)
 
   if snippet.read_count == 0:
-    rs = "Clipped just now."
+    rs = "Snipped just now."
   elif snippet.read_count == 1:
     rs = "First time"
   elif snippet.read_count == 2:
@@ -296,21 +339,26 @@ def update_view(snippet, counts_as_read=False):
 
 class TUI(object):
   last_next = 0
+  is_text_filter_enabled = True
 
   def show_info_screen(self):
     if needs_reading:
-      second = "Press return to review your first snippet, or add some new ones."
+      first = "in addition"
+      second = "Press return to review your first snippet or add some new ones."
     else:
+      first = "however"
       second = "Try adding some new snippets from the web."
 
     ready_ct = len(needs_reading)
 
     tui.body.set_text(textwrap.dedent("""
-      You have %s ready for review.
+      %s %s ready for review.
 
-      (%s will become ready over the next 24 hours.)
+      (%s, %s will become ready over the next 24 hours.)
 
-      %s""" % (inflect.no("snippet", ready_ct),
+      %s""" % (inflect.no("snippet", ready_ct).capitalize(),
+               inflect.plural_verb("is", ready_ct),
+               first,
                inflect.no("snippet", next_24_h_count),
                second))[1:])
 
@@ -318,7 +366,7 @@ class TUI(object):
   def update_rep_rate(self, snippet):
     self.rep_rate.set_text(["    Rep rate: %s <Next rep: " %
                            snippet.rep_rate_slider_txt(),
-                           ('standout', "%d days" % snippet.get_days_delay()),
+                           ('standout', "%.1f days" % snippet.get_days_delay()),
                            " from now>"])
 
   def update_footer(self, update_status=True):
@@ -491,7 +539,7 @@ class TUI(object):
   def cmd_clip(self):
     data = get_clip_data()
     data = data.strip(" ")
-    if text_filter:
+    if self.is_text_filter_enabled:
       data = rewrap_text(data)
     try:
       if data[-1] != "\n":
@@ -540,10 +588,8 @@ class TUI(object):
     self.status.set_text("undo not yet implemented.")
 
   def cmd_toggle_text_filter(self):
-    global text_filter
-
-    text_filter = not text_filter
-    if text_filter:
+    t = self.is_text_filter_enabled = not self.is_text_filter_enabled
+    if t:
       self.status.set_text("text filter enabled.")
     else:
       self.status.set_text("text filter disabled.")
@@ -662,8 +708,13 @@ def open_editor_with_tmp_file_containing(in_text):
   # Call handler in case window was resized
   handler(None, None)
 
+  # The file is interpreted as UTF-8, converted to unicode, and then the
+  # unicode is "translated" to ascii.
+  #
+  # Make sure $EDITOR saves files as UTF-8 by default or this won't work
+  # right.
   with open(path, 'r') as f:
-    out_text = f.read().decode("UTF-8", 'ignore')
+    out_text = strip_unicode(f.read().decode("UTF-8", 'ignore'))
 
   os.remove(path)
 

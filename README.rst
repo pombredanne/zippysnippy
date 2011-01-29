@@ -82,6 +82,20 @@ In many of my areas of interest (programming, art, etc) people do not
 necessarily even agree on what the facts are. Thus, Snippet Manager is not
 designed to assist with the recall of facts through clozes, etc.
 
+Tips
+----
+
+Many of the tips for using SuperMemo effectively also apply to ZippySnippy.
+For example, a good workflow is to scan quickly over a piece of text, snip it,
+and then immediately move on to the next thing.
+
+Any editing should be performed during subsequent review sessions, not during
+the first snipping. This is the most efficient way to use your time.
+Furthermore, you will often have a better sense of which parts of a text are
+worth keeping on the second or third review.
+
+--
+
 Snippet Manager uses human-readable and human-editable utf8-encoded text files
 for all stored data. The format is open and documented. This is terribly
 inefficient but important in the event of a bug or partial data loss.
