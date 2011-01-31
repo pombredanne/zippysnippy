@@ -107,6 +107,12 @@ class Snippet(object):
     self._rep_rate = value
 
   def get_days_delay(self):
+    """Returns: floating point number of days from last read we should wait to
+    display this snippet again."""
+
+    # A new "split" that hasn't been read yet.
+    if self.read_count == -1:
+      return 0
 
     # length_factor
     #
@@ -335,7 +341,7 @@ def update_view(snippet, counts_as_read=False):
 
   tui.update_rep_rate(snippet)
 
-  set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
+  #set_term_title(" ".join(snippet.text.split(" ", 5)[:-1])+"...")
 
   tui.defer_update_similarity()
 
@@ -409,10 +415,10 @@ class TUI(object):
 
   def update_footer(self, update_status=True):
     if update_status:
-      self.status.set_text("Tracking %s in %s; %d are ready for review." % (
+      self.status.set_text("Tracking %s in %s; %s ready for review." % (
         inflect.no("snippet", len(snippets)),
         inflect.no("category", len(categories)),
-        len(needs_reading),
+        str(len(needs_reading) or "none"),
       ))
       self.active_cat.set_text("Snipping category: %s " % active_category)
 
@@ -425,7 +431,7 @@ class TUI(object):
   def defer_update_similarity(self):
     self.similarity.set_text("  Similarity: <Checking...>")
 
-    def adapter(loop, _):
+    def adapter(loop, u_data):
       return self.similarity_callback(loop)
 
     self.loop.set_alarm_in(0.01, adapter)
@@ -490,13 +496,44 @@ class TUI(object):
     start_txt = self.current_snippet.text
     result_txt = open_editor_with_tmp_file_containing(start_txt)
 
+    the_split = re.split("<split>", result_txt)
+    s1 = ""
+    if len(the_split) > 1:
+      result_txt = the_split.pop(0).strip() + "\n"
+
+      s1 = (" %s created." % (
+        inflect.no("new snippet", len(the_split)),
+      )).capitalize()
+
+      cs = self.current_snippet
+      for new_txt in the_split:
+        new_sn = Snippet(
+          read_count= -1,
+          text= new_txt.strip() + "\n",
+          category= cs.category,
+          source= cs.source,
+          added= datetime.datetime.now(),
+          last_read= None,
+          flags= None,
+          rep_rate= None
+        )
+        snippets.append(new_sn)
+        needs_reading.add(new_sn)
+
     if result_txt == start_txt:
-      self.status.set_text("Edit finished. No changes made.")
+      s2 = "Edit finished; no changes."
     else:
-      self.status.set_text("Text updated.")
+      s2 = "Text updated."
       self.current_snippet.text = result_txt
 
     update_view(self.current_snippet, counts_as_read=False)
+
+    # Not sure why this is necessary: something must be barging and updating
+    # the status
+    def update_status(*args):
+      self.status.set_text(s2 + s1)
+
+    self.loop.set_alarm_in(0.01, update_status)
 
   def cmd_new_snippet(self):
     result_txt = open_editor_with_tmp_file_containing("")
@@ -740,7 +777,7 @@ def quit():
     tui.current_snippet.update_read_time()
 
   io.write_to_category_files(categories, snippets)
-  set_term_title("Terminal", show_extra=False)
+  #set_term_title("Terminal", show_extra=False)
 
 def open_editor_with_tmp_file_containing(in_text):
   fn = "st_" + ''.join(random.choice(string.letters) for x in range(20))

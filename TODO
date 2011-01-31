@@ -1,35 +1,16 @@
-- add <s> split tag.
 - make <b></b> show up colored
 - color quoted text that starts with >
 - fix: "1 are ready for review (footer)"
 - snippets that reference specific files. maybe use symbolic links so the
   actual files can be moved
 - 'p' should reverse 'S'
-
--------------------
-
 - Category: | v foo | (should be a drop-down menu)
-- Not sure that just storing the number of repetitions is going to cut it. If
-  you turn rep rate way up and then turn it down, the number will be huuuuge
-  Or, maybe you just need to take date snipped into account. I think that's a
-  much better solution.
-- Randomization: Too often a chunk of related text comes up all at once.
-  - Definitely randomize order when lots of snippets are available
-  - Maybe even randomize days they become available too (otherwise you'll just
-    see the same chunks in increasing waves of time)
-- Add title field, fetch title from html page
 - Unmark: don't mark current item as read
-- Unicode data in input causes failure
-- Flags
-- Split
-  - open the edit window, with a notice in comments (like git) to add some kind
-    of separator where you want the split to happen.
 - Write to disk more frequently
 - QuickStart screen for first run without any data.
 - Bulk source verify: recheck all sources, mark bad ones
-  - maybe store date of last check
 - Clipboard:
-  - it's probably possible to get the source application for the selection in the
-    X clipboard by going through the C api but its sortof a pain. take a look at
-    the xclip source code for examples, if you care enough to
+  - it's probably possible to get the source application for the selection in
+    the X clipboard by going through the C api but its sortof a pain. take a
+    look at the xclip source code for examples, if you care enough to
   - see also http://tronche.com/gui/x/icccm/
