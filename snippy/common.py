@@ -38,7 +38,7 @@ NEXT_ITEM_DELAY = 3
 snippets = []
 
 # Initially, all categories are up for review
-review_category_lock = False
+review_cat_lock = False
 
 all_flags = set()
 categories = set()
@@ -91,6 +91,8 @@ def get_clip_data():
 
 class Snippet(object):
   """Intended to be completely separate from the user-interface!"""
+
+  similar = []
 
   @property
   def rep_rate(self):
@@ -340,6 +342,42 @@ def update_view(snippet, counts_as_read=False):
 class TUI(object):
   last_next = 0
   is_text_filter_enabled = True
+  sticky_title = ""
+
+  def similarity_callback(self, loop):
+    this_snippet = self.current_snippet
+
+    if not similar.hash_lookup:
+      similar.setup_hashes(snippets)
+
+    matches = self.current_snippet.similar = list(similar.find(this_snippet))
+
+    self.similarity.set_text("  Similarity: %s" % (
+      inflect.no("similar entry", len(matches))
+    ))
+
+    for other_snippet in matches:
+      # TODO: change color
+
+      post = this_snippet.unfscked_text()
+      tot_size = 0
+      stop = 0
+      body = []
+      for a, size in sorted(similar.compare(this_snippet, other_snippet)):
+        tot_size += size
+
+        start = a - stop
+        stop = start + size
+
+        pre = post[:start]
+        hilite = 'similar', post[start:stop]
+        body += [pre, hilite]
+
+        post = post[stop:]
+
+      self.body.set_text(body + [post])
+      #self.similarity.set_text(ss + ", about %d chars" % tot_size)
+      return # TODO: process more than one
 
   def show_info_screen(self):
     if needs_reading:
@@ -378,37 +416,28 @@ class TUI(object):
       ))
       self.active_cat.set_text("Snipping category: %s " % active_category)
 
-    if review_category_lock:
-      txt = review_category_lock
+    if review_cat_lock:
+      txt = review_cat_lock
     else:
       txt = "[unlocked]"
     self.review_cat.set_text("Review cat lock: %s" % txt)
 
   def defer_update_similarity(self):
     self.similarity.set_text("  Similarity: <Checking...>")
-    self.loop.set_alarm_in(0.01, similar.update_similarity_callback, user_data=self)
+
+    def adapter(loop, _):
+      return self.similarity_callback(loop)
+
+    self.loop.set_alarm_in(0.01, adapter)
 
   def sz(self):
     return self.screen.get_cols_rows()
 
-  def cmd_next_snippet(self):
-    rem_time = self.last_next - time.time() + NEXT_ITEM_DELAY
-    if rem_time > 0:
-      self.status.set_text("Whoa, slow down!")
-      self.loop.set_alarm_in(rem_time, lambda x,y: self.update_footer())
-      return
-
+  def goto_snippet(self, new_snippet):
     if self.current_snippet:
       self.current_snippet.update_read_time()
 
-    if not needs_reading:
-      self.show_info_screen()
-      return
-
-    while needs_reading:
-      self.current_snippet = needs_reading.pop()
-      if not review_category_lock or self.current_snippet.category == review_category_lock:
-        break
+    self.current_snippet = new_snippet
 
     update_view(self.current_snippet, counts_as_read=True)
 
@@ -419,6 +448,24 @@ class TUI(object):
     self.loop.set_alarm_in(0.01, fn)
 
     self.last_next = time.time()
+
+  def cmd_next_snippet(self):
+    rem_time = self.last_next - time.time() + NEXT_ITEM_DELAY
+    if rem_time > 0:
+      self.status.set_text("Whoa, slow down!")
+      self.loop.set_alarm_in(rem_time, lambda x,y: self.update_footer())
+      return
+
+    if not needs_reading:
+      self.show_info_screen()
+      return
+
+    while needs_reading:
+      new_snippet = needs_reading.pop()
+      if not review_cat_lock or new_snippet.category == review_cat_lock:
+        break
+
+    self.goto_snippet(new_snippet)
 
   def cmd_scroll_up(self):
     self.frame.keypress(self.sz(), 'up')
@@ -501,19 +548,36 @@ class TUI(object):
 
     self.update_footer()
 
-  def cmd_delete_current_snippet(self):
+  def cmd_delete_current_snippet(self, goto_similar=False):
+    if goto_similar:
+      try:
+        goto_snippet = self.current_snippet.similar[0]
+      except IndexError:
+        self.status.set_text("No similar snippet to go to.")
+        return
+
     self.status.set_text("Really delete? Press y to confirm.")
 
     def d_hook(input):
-      if input == "y":
-        self.status.set_text("Deleted.")
-        snippets.remove(self.current_snippet)
-      else:
+      if input != "y":
         self.status.set_text("Not deleted.")
+        return
+
+      self.status.set_text("Deleted.")
+      snippets.remove(self.current_snippet)
+      self.current_snippet = None
+
+      if goto_similar:
+        self.goto_snippet(goto_snippet)
+      else:
+        self.body.set_text(('dim', self.body.text))
 
       self.input_hook = None
 
     self.input_hook = d_hook
+
+  def cmd_delete_and_goto_similar(self):
+    return self.cmd_delete_current_snippet(goto_similar=True)
 
   def cmd_open_category_selector(self):
     if not self.current_snippet:
@@ -547,22 +611,27 @@ class TUI(object):
     except IndexError:
       self.status.set_text("Error: no clipboard data.")
     else:
-      if sticky_source:
-        source = sticky_source
-      else:
-        source = get_chrome_url()
-      sn = Snippet(text=data,
-                   source=source,
-                   category=active_category,
-                   added=datetime.datetime.now(),
-                   last_read=datetime.datetime.now(),
-                   read_count=0)
+      self.current_snippet = sn = Snippet(
+        text= self.sticky_title + data,
+        source= sticky_source if sticky_source else get_chrome_url(),
+        category= active_category,
+        added= datetime.datetime.now(),
+        last_read= datetime.datetime.now(),
+        read_count= 0
+      )
       snippets.append(sn)
 
       self.status.set_text("New clip recorded.")
       update_view(sn)
-      self.current_snippet = sn
       self.update_footer()
+
+  def cmd_set_sticky_title(self):
+    self.status.set_text("Added sticky title.")
+    self.sticky_title = get_clip_data().replace("\n", " ").strip() + "\n\n"
+
+  def cmd_clear_sticky_title(self):
+    self.status.set_text("Sticky title removed.")
+    self.sticky_title = ""
 
   def cmd_set_sticky_source(self):
     global sticky_source
@@ -578,21 +647,19 @@ class TUI(object):
       update_view(self.current_snippet)
 
   def cmd_lock_review_topic(self):
-    global review_category_lock
+    global review_cat_lock
 
-    review_category_lock = active_category
-    self.status.set_text("Review topic locked to %s." % review_category_lock)
+    review_cat_lock = active_category
+    self.status.set_text("Review topic locked to %s." % review_cat_lock)
     self.update_footer(False)
 
   def cmd_undo(self):
     self.status.set_text("undo not yet implemented.")
 
   def cmd_toggle_text_filter(self):
-    t = self.is_text_filter_enabled = not self.is_text_filter_enabled
-    if t:
-      self.status.set_text("text filter enabled.")
-    else:
-      self.status.set_text("text filter disabled.")
+    is_enabled = self.is_text_filter_enabled = not self.is_text_filter_enabled
+    desc = "enabled" if is_enabled else "disabled"
+    self.status.set_text("text filter %s." % desc)
 
   def cmd_pgdn(self):
     self.frame.keypress(self.sz(), 'page down')
@@ -638,29 +705,31 @@ class TUI(object):
       update_view(self.current_snippet)
 
   input_map = {
-    'D': cmd_dump,
+    'a': cmd_scroll_active_category_up,
+    'c': cmd_open_category_selector,
+    '?': cmd_help,
+    ' ': cmd_pgdn,
     'd': cmd_delete_current_snippet,
+    'D': cmd_delete_and_goto_similar,
     'e': cmd_edit_snippet,
     'enter': cmd_next_snippet,
+    'f': cmd_toggle_text_filter,
     'h': cmd_rep_rate_down,
     'j': cmd_scroll_down,
-    'f': cmd_toggle_text_filter,
     'k': cmd_scroll_up,
     'l': cmd_rep_rate_up,
-    'n': cmd_new_snippet,
     'm': cmd_mark_manually_written,
-    'q': cmd_quit,
-    'p': cmd_pull_source,
-    'a': cmd_scroll_active_category_up,
-    'z': cmd_scroll_active_category_down,
-    'c': cmd_open_category_selector,
-    's': cmd_clip,
-    'S': cmd_set_sticky_source,
-    'u': cmd_undo,
-    ' ': cmd_pgdn,
-    '?': cmd_help,
+    'n': cmd_new_snippet,
     'o': cmd_open_in_browser,
     'O': cmd_search_in_google,
+    'p': cmd_pull_source,
+    'q': cmd_quit,
+    's': cmd_clip,
+    'S': cmd_set_sticky_source,
+    't': cmd_set_sticky_title,
+    'T': cmd_clear_sticky_title,
+    'u': cmd_undo,
+    'z': cmd_scroll_active_category_down,
   }
 
 
@@ -691,7 +760,7 @@ def open_editor_with_tmp_file_containing(in_text):
   handler = signal.getsignal(signal.SIGWINCH)
   signal.signal(signal.SIGWINCH, sigwinch_passthrough)
 
-  # Small delay required or window won't resize
+  # Small delay required or window won't resize... weird
   import time
   time.sleep(0.300)
   sigwinch_passthrough(None, None)
@@ -848,7 +917,8 @@ def run_urwid_interface():
     ('header','white','dark red', 'bold', 'white', '#600'),
     ('footer','white','black'),
     ('standout','light green','black'),
-    ('similar','light red','black'),
+    ('similar', 'yellow','black'),
+    ('dim', 'dark gray', 'black'),
     ('editfc','white', 'dark blue', 'bold'),
     ('editbx','light gray', 'dark blue'),
     ('editcp','black','light gray', 'standout'),

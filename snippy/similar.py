@@ -8,8 +8,6 @@ from difflib import SequenceMatcher
 from functools import partial
 from hashlib import sha1
 
-import common
-
 def compare(snippet1, snippet2):
   # TODO: convert punct and stuff to spaces with translate so it doesn't screw
   # up offsets
@@ -43,7 +41,7 @@ def get_sentence_hashes(text):
 
 # TODO: add entries to hash_lookup as they are snipped!
 hash_lookup = {}
-def setup_similarity_hashes(snippets):
+def setup_hashes(snippets):
   """Must be called before any similarity comparisons can be made."""
   for sn in snippets:
     for int_hash in get_sentence_hashes(sn.text):
@@ -53,7 +51,7 @@ def setup_similarity_hashes(snippets):
       except KeyError:
         hash_lookup[int_hash] = [sn]
 
-def find_similar_snippets(snippet):
+def find(snippet):
   similar = set()
 
   for int_hash in get_sentence_hashes(snippet.text):
@@ -68,40 +66,3 @@ def find_similar_snippets(snippet):
     pass
 
   return similar
-
-def update_similarity_callback(loop, tui):
-  this_snippet = tui.current_snippet
-
-  if not hash_lookup:
-    setup_similarity_hashes(common.snippets)
-
-  matches = find_similar_snippets(this_snippet)
-  if matches:
-    ss = "%d similar entries" % len(matches)
-  else:
-    ss = "No similar entries."
-  ss = "  Similarity: %s" % ss
-  tui.similarity.set_text(ss)
-
-  for other_snippet in matches:
-    # TODO: change color
-
-    post = this_snippet.unfscked_text()
-    tot_size = 0
-    stop = 0
-    body = []
-    for a, size in sorted(compare(this_snippet, other_snippet)):
-      tot_size += size
-
-      start = a - stop
-      stop = start + size
-
-      pre = post[:start]
-      hilite = 'similar', post[start:stop]
-      body += [pre, hilite]
-
-      post = post[stop:]
-
-    tui.body.set_text(body + [post])
-    tui.similarity.set_text(ss + ", about %d chars" % tot_size)
-    return # TODO: process more than one

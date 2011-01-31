@@ -4,6 +4,7 @@
 - fix: "1 are ready for review (footer)"
 - snippets that reference specific files. maybe use symbolic links so the
   actual files can be moved
+- 'p' should reverse 'S'
 
 -------------------
 
