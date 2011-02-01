@@ -262,15 +262,23 @@ def get_chrome_url():
 
 snippet_reader = io.read_category_files()
 for read_ct, text, last_read, flags, source, cat, rep_rate, added in snippet_reader:
-  sn = Snippet(read_ct, text, cat, added, last_read, flags, rep_rate, source)
+  snippets.append(Snippet(
+    read_ct, text, cat, added, last_read, flags, rep_rate, source
+  ))
 
-  snippets.append(sn)
+def calc_needs_reading():
+  global next_24_h_count
 
-  if sn.needs_reading():
-    needs_reading.add(sn)
-  else:
-    if sn.will_be_ready_in_next_24_h():
-      next_24_h_count += 1
+  next_24_h_count = 0
+
+  for sn in snippets:
+    if sn.needs_reading():
+      needs_reading.add(sn)
+    else:
+      if sn.will_be_ready_in_next_24_h():
+        next_24_h_count += 1
+
+calc_needs_reading()
 
 #active_category = 'misc'
 active_category = 'pua'
@@ -349,6 +357,10 @@ class TUI(object):
   last_next = 0
   is_text_filter_enabled = True
   sticky_title = ""
+
+  def update_callback(self, loop):
+    calc_needs_reading()
+    self.update_footer()
 
   def similarity_callback(self, loop):
     this_snippet = self.current_snippet
@@ -443,9 +455,12 @@ class TUI(object):
     if self.current_snippet:
       self.current_snippet.update_read_time()
 
+    new_snippet.update_read_time()
+
     self.current_snippet = new_snippet
 
-    update_view(self.current_snippet, counts_as_read=True)
+    # XXX: This is a mess, should be in here
+    update_view(new_snippet, counts_as_read=True)
 
     # scroll to top
     def fn(a,b):
@@ -981,7 +996,7 @@ def run_urwid_interface():
     Key('n', 'open editor, add as new snippet when done'),
     Key('o', "open current snippet's source page in web browser"),
     Key('p', "set current snippet's source to active Chrome URL"),
-    Key('q', 'quit {0}'.format(APP_NAME)),
+    Key('q', 'quit %s' % APP_NAME),
     Key('R', 'lock review topic'),
     Key('S', 'copy source from clipboard and make sticky'),
     Key('s', 'create new snippet from X clipboard'),
@@ -1023,8 +1038,15 @@ def run_urwid_interface():
   tui.screen.register_palette(palette)
 
   def main_loop():
+    tui.loop = urwid.MainLoop(tui.frame, screen=tui.screen, unhandled_input=unhandled)
+
+    def update_adapter(loop, u_data):
+      loop.set_alarm_in(120, update_adapter)
+      return tui.update_callback(loop)
+
+    tui.loop.set_alarm_in(120, update_adapter)
+
     try:
-      tui.loop = urwid.MainLoop(tui.frame, screen=tui.screen, unhandled_input=unhandled)
       tui.loop.run()
     except KeyboardInterrupt:
       quit()
