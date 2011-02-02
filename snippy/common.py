@@ -1,6 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: ascii -*-
 
+APP_NAME = "ZippySnippy"
+APP_VERSION = "0.1"
+
+# After pressing return to advance to the next item, you can't advance again
+# for this many seconds (prevents accidental key presses)
+NEXT_ITEM_DELAY = 3
+
 import collections
 import cPickle
 import datetime
@@ -16,24 +23,16 @@ import textwrap
 import time
 import urllib
 
-import similar
-import io
-
 from unidecode import unidecode
 from inflect import engine as inflect_engine
 
-inflect = inflect_engine()
+from . import similar
+from . import io
 
+inflect = inflect_engine()
 days_random = random.Random()
 
 logging.basicConfig(level=logging.DEBUG)
-
-APP_NAME = "ZippySnippy"
-APP_VERSION = "0.1"
-
-# After pressing return to advance to the next item, you can't advance again
-# for this many seconds (prevents accidental key presses)
-NEXT_ITEM_DELAY = 3
 
 snippets = []
 
@@ -432,7 +431,7 @@ class TUI(object):
         inflect.no("category", len(categories)),
         str(len(needs_reading) or "none"),
       ))
-      self.active_cat.set_text("Snipping category: %s " % active_category)
+      self.active_cat.set_text("Default category: %s " % active_category)
 
     if review_cat_lock:
       txt = review_cat_lock
@@ -528,7 +527,7 @@ class TUI(object):
           category= cs.category,
           source= cs.source,
           added= datetime.datetime.now(),
-          last_read= None,
+          last_read= datetime.datetime.now(),
           flags= None,
           rep_rate= None
         )
@@ -555,14 +554,16 @@ class TUI(object):
     if len(result_txt) < 3:
       self.status.set_text("New clip not created.")
     else:
-      self.current_snippet = Snippet(read_count=-1,
-                                     text=result_txt,
-                                     category=active_category,
-                                     source="manually written",
-                                     added=datetime.datetime.now(),
-                                     last_read=None,
-                                     flags=None,
-                                     rep_rate=None)
+      self.current_snippet = Snippet(
+        read_count= -1,
+        text= result_txt,
+        category= active_category,
+        source= "manually written",
+        added= datetime.datetime.now(),
+        last_read= datetime.datetime.now(),
+        flags= None,
+        rep_rate= None,
+      )
       snippets.append(self.current_snippet)
 
       self.status.set_text("New clip recorded.")
@@ -576,29 +577,6 @@ class TUI(object):
     self.current_snippet.source = get_chrome_url()
     self.status.set_text("Source modified.")
     update_view(self.current_snippet, counts_as_read=False)
-
-  def cmd_scroll_active_category_up(self):
-    global active_category
-
-    l = sorted(list(categories))
-    try:
-      active_category = l[l.index(active_category) + 1]
-    except IndexError:
-      active_category = l[0]
-
-    self.update_footer()
-
-  def cmd_scroll_active_category_down(self):
-    global active_category
-
-    l = sorted(list(categories))
-    l.reverse()
-    try:
-      active_category = l[l.index(active_category) + 1]
-    except IndexError:
-      active_category = l[0]
-
-    self.update_footer()
 
   def cmd_delete_current_snippet(self, goto_similar=False):
     if goto_similar:
@@ -756,8 +734,34 @@ class TUI(object):
     else:
       update_view(self.current_snippet)
 
+  def cmd_show_default_category_menu(self):
+    from . import ui
+
+    rows, cols = self.sz()
+
+    menu = ui.PopupMenu(
+      sorted(categories),
+      active_category,
+      ('fixed right', 0, 'fixed bottom', 1),
+      tui.frame,
+    )
+
+    old_widget = tui.loop.widget
+    tui.loop.widget = menu
+
+    def t_hook(input):
+      global active_category
+
+      if menu.selected:
+        active_category = menu.selected
+        tui.update_footer()
+
+      tui.loop.widget = old_widget
+
+      self.input_hook = None
+    self.input_hook = t_hook
+
   input_map = {
-    'a': cmd_scroll_active_category_up,
     'c': cmd_open_category_selector,
     '?': cmd_help,
     ' ': cmd_pgdn,
@@ -781,7 +785,7 @@ class TUI(object):
     't': cmd_set_sticky_title,
     'T': cmd_clear_sticky_title,
     'u': cmd_undo,
-    'z': cmd_scroll_active_category_down,
+    'x': cmd_show_default_category_menu,
   }
 
 
@@ -945,7 +949,9 @@ def run_urwid_interface():
   tui.catbox = urwid.ListBox(urwid.SimpleListWalker([
     tui.cb.edit,
     blank,
-    urwid.Text("Type until the category you want is highlighted below, or use the arrow keys to scroll through the list. Press Ctrl-C to go back without changing the category."),
+    urwid.Text("Type until the category you want is highlighted below, or "
+               "use the arrow keys to scroll through the list. Press Ctrl-C "
+               "to go back without changing the category."),
     blank,
     urwid.Padding(tui.cb.pile,
                   ('fixed left' ,2),
@@ -974,9 +980,12 @@ def run_urwid_interface():
     ('editfc','white', 'dark blue', 'bold'),
     ('editbx','light gray', 'dark blue'),
     ('editcp','black','light gray', 'standout'),
-    ('bright','dark gray','light gray', ('bold','standout')),
-    ('buttn','black','dark cyan'),
-    ('buttnf','white','dark blue','bold'),
+    #('bright','dark gray','light gray', ('bold','standout')),
+    #('buttn','black','dark cyan'),
+    #('buttnf','white','dark blue','bold'),
+
+    ('menu','black','dark cyan'),
+    ('menuf','white','dark blue','bold'),
   ]
 
   import collections
