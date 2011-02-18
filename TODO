@@ -1,15 +1,19 @@
+- "manually written" should have top priority.
 - make <b></b> show up colored
+  - <e></e> is used for editor's notes
+- "about 1 weeks ago" in date snipped area
 - color quoted text that starts with >
 - fix: "1 are ready for review (footer)"
 - snippets that reference specific files. maybe use symbolic links so the
   actual files can be moved
 - 'p' should reverse 'S'
-- Category: | v foo | (should be a drop-down menu)
+- Make category a drop-down menu
 - Unmark: don't mark current item as read
 - Write to disk more frequently
 - QuickStart screen for first run without any data.
 - Bulk source verify: recheck all sources, mark bad ones
 - Clipboard:
+  - detect pdf viewer vs web browser
   - it's probably possible to get the source application for the selection in
     the X clipboard by going through the C api but its sortof a pain. take a
     look at the xclip source code for examples, if you care enough to

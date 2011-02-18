@@ -12,6 +12,18 @@ class SelText(urwid.Text):
   def keypress(self, size, key):
     return key # don't handle any keys
 
+
+class JKListbox(urwid.ListBox):
+  """Listbox that also scrolls itself on j and k keypresses"""
+
+  def keypress(self, size, key):
+    if key == "j":
+      key = "down"
+    elif key == "k":
+      key = "up"
+
+    return urwid.ListBox.keypress(self, size, key)
+
 class PopupMenu(urwid.WidgetWrap):
   """
   Creates a popup menu on top of another BoxWidget.
@@ -48,7 +60,7 @@ class PopupMenu(urwid.WidgetWrap):
         width = len(entry)
 
     # Create the ListBox widget and put it on top of body:
-    self._listbox = urwid.AttrWrap(urwid.ListBox(content), fg)
+    self._listbox = urwid.AttrWrap(JKListbox(content), fg)
 
     xpos = pos[0], pos[1]
     ypos = pos[2], pos[3]

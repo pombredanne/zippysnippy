@@ -734,10 +734,35 @@ class TUI(object):
     else:
       update_view(self.current_snippet)
 
-  def cmd_show_default_category_menu(self):
+  def cmd_show_review_category_menu(self):
     from . import ui
 
-    rows, cols = self.sz()
+    menu = ui.PopupMenu(
+      ["[unlocked]"] + sorted(categories),
+      review_cat_lock if review_cat_lock else "[unlocked]",
+      ('fixed left', 0, 'fixed bottom', 1),
+      tui.frame,
+    )
+
+    old_widget = tui.loop.widget
+    tui.loop.widget = menu
+
+    def t_hook(input):
+      global review_cat_lock
+
+      if menu.selected:
+        review_cat_lock = menu.selected
+        if review_cat_lock == "[unlocked]":
+          review_cat_lock = False
+        tui.update_footer()
+
+      tui.loop.widget = old_widget
+
+      self.input_hook = None
+    self.input_hook = t_hook
+
+  def cmd_show_default_category_menu(self):
+    from . import ui
 
     menu = ui.PopupMenu(
       sorted(categories),
@@ -786,6 +811,7 @@ class TUI(object):
     'T': cmd_clear_sticky_title,
     'u': cmd_undo,
     'x': cmd_show_default_category_menu,
+    'r': cmd_show_review_category_menu,
   }
 
 

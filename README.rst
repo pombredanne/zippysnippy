@@ -4,33 +4,69 @@ thousands of snippets, but there are still a lot of rough edges.
 Philosophy
 ----------
 
+In some sense, ZippySnippy is a mind programming tool. It is designed to
+help you get more out of what you read and make it easier to implement new
+habits through repetition.
+
 If you read a lot, you probably decide that most of what you have read was
 useless, or, at best, never needs to be read again.
 
-However, 1-10% of what you read you may think: Wow, that's insightful. I
-learned something from that.
+However, 1-10% of what you read you may think: "Wow, that's insightful. I
+learned something from that." Or, "This is useful. I want to implement this as
+a habit."
 
-ZippySnippy is for that 1-10%. Instead of going on to the next thing and
-completely forgetting about what you've learned, why not save it?
+Instead of just going on to the next thing and having a 90%+ chance of
+completely forgetting about what you've learned, you should record this 1-10%
+in ZippySnippy.
 
-ZippySnippy is a console-based tool designed to gradually accumulate these
-useful "snippets" of information. ZippySnippy will then present these snippets
-back to you for review at gradually increasing intervals of time to make sure
-you don't forget.
+ZippySnippy accumulates these "snippets" of information and presents them back
+to you for review at gradually-increasing intervals of time.
 
 Whether these snippets come from ebooks, the web, or your own brain is up to
 you, although ZippySnippy does have features designed to accelerate all 3
 of these common use cases.
 
-Long-term learning _requires_ repetition, ideally spaced at gradually
-increasing intervals of time. Snippet Manager aims to make this process
-painless enough that you might be motivated to start doing it.
+Remember: long-term learning and behavior change *requires* repetition. There
+is no shortcut you can take to avoid this process.
 
+You can either let your environment dictate what you repeatedly encounter, or
+you can take control of the process with a tool like ZippySnippy.
+
+Our aim has been to make this process painless enough that you might be
+motivated enough to start doing it.
+
+--
+
+The author is surprised by how often he has detected his own behavior change
+as a result of ZippySnippy use, *even in areas where he was convinced no
+further study was necessary.*
 
 QuickStart
 ----------
 
 [...]
+
+Source Material
+---------------
+
+E-books
+*******
+
+After you get used to ZippySnippy you will find printed books annoying. You
+can highlight and underline in a printed book, but it is not nearly as
+effective as taking the most relevant snippets of text and putting them into
+your ZippySnippy rotation.
+
+The Web
+*******
+
+You Own Brain
+*************
+
+When you have an idea or important thought that you are not going to take
+action on immediately, you should take a few seconds to record it in your
+ZippySnippy rotation before you forget. You can decide whether it is important
+and take action on it later.
 
 Habit
 -----
@@ -82,8 +118,8 @@ In many of my areas of interest (programming, art, etc) people do not
 necessarily even agree on what the facts are. Thus, Snippet Manager is not
 designed to assist with the recall of facts through clozes, etc.
 
-Tips
-----
+Usage and Tips
+--------------
 
 Many of the tips for using SuperMemo effectively also apply to ZippySnippy.
 For example, a good workflow is to scan quickly over a piece of text, snip it,
@@ -93,6 +129,19 @@ Any editing should be performed during subsequent review sessions, not during
 the first snipping. This is the most efficient way to use your time.
 Furthermore, you will often have a better sense of which parts of a text are
 worth keeping on the second or third review.
+
+Make entries self-contained
+***************************
+
+In general, shorter entries are better than longer ones.
+
+Shorter entries:
+  * Can be shuffled more efficiently.
+  * Help maintain attention.
+
+Big lists should almost always be broken up into smaller entries. Be careful
+when you do this to make sure you retain enough context that you remember what
+the entry is talking about the next time you see it.
 
 --
 
