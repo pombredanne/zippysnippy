@@ -6,12 +6,13 @@ APP_VERSION = "0.1"
 
 # After pressing return to advance to the next item, you can't advance again
 # for this many seconds (prevents accidental key presses)
-NEXT_ITEM_DELAY = 3
+NEXT_ITEM_DELAY = 1
 
 import collections
 import cPickle
 import datetime
 import logging
+import functools
 import math
 import os
 import random
@@ -51,11 +52,13 @@ source_count = collections.defaultdict(int)
 next_24_h_count = 0
 
 is_url = re.compile(r"http://").match
+split_by_punct = re.compile(r'([.!?] *)').split
+capitalize_i = functools.partial(re.compile(r' i ').sub, " I ")
 
 def calc_days(rc, rr, length_factor, random_factor):
   # rc: read_count, varies between 0 and inf
   # rr: rep_rate, varies between 1 and 9
-  # length_factor varies between 1.0 and 3.0
+  # length_factor varies between 1.0 and 5.0ish
   # random_factor varies between 0.5 and 1.5
 
   return (
@@ -72,13 +75,25 @@ def set_term_title(text, show_extra=True):
     text = "%s - %s" % (APP_NAME, text)
   print '"\033]0;%s\007"' % text
 
-def rewrap_text(text):
+def rewrap(text):
   import textwrap
 
   paragraphs = []
   for paragraph in text.split("\n\n"):
     paragraphs.append(textwrap.fill(paragraph, 78))
   return "\n\n".join(paragraphs)
+
+def cap_first(s):
+  if s:
+    try:
+      return s[0].capitalize() + s[1:]
+    except IndexError:
+      return s[0].capitalize()
+  return s
+
+def recapitalize(text):
+  text = ''.join(cap_first(x) for x in split_by_punct(text))
+  return capitalize_i(text)
 
 def strip_unicode(text):
   return unidecode(text).encode('ascii', 'ignore')
@@ -113,16 +128,7 @@ class Snippet(object):
     if self.read_count == -1:
       return 0
 
-    # length_factor
-    #
-    # text len | length_factor
-    #       50 | 1.00
-    #       70 | 1.08
-    #      300 | 1.70
-    #      300 | 1.70
-    #     3000 | 2.66
-    #     9000 | 3.00
-    length_factor = minmax(1.0, 0.42*math.log(len(self.text)) - 0.7, 3.0)
+    length_factor = max(1.0, 0.62*math.log(len(self.text)) - 1.4)
 
     # random_factor
     #
@@ -132,27 +138,27 @@ class Snippet(object):
     # jiggle around snippets which are all clipped at the same time (and
     # probably from the same source) than it is to have consistent delays.
     days_random.seed(self.text)
-    random_factor = days_random.uniform(0.5, 1.5)
-    min_rand_factor = days_random.uniform(0.8, 1.2)
+    big_rand_factor = days_random.uniform(0.5, 1.5)
+    small_rand_factor = days_random.uniform(0.8, 1.2)
 
     calc = calc_days(
       self.read_count,
       self.rep_rate,
       length_factor,
-      random_factor,
+      big_rand_factor,
     )
 
     # At least one day between reps
     calc = max(1, calc)
 
-    constrain = length_factor * random_factor
+    constrain = length_factor * big_rand_factor
 
     # All rep_rates except "9" have a ~7-day minimum enforced.
-    minimum = 7.0 * min_rand_factor
+    minimum = 7.0 * small_rand_factor
 
     # Constrain different rep_rates to specific ranges.
     if self.rep_rate == 9:
-      return max(1.0 * min_rand_factor, constrain)
+      return max(1.0 * small_rand_factor, constrain)
     elif self.rep_rate == 8:
       return minmax(minimum, calc, 7.0 * constrain)
     elif self.rep_rate == 7:
@@ -307,6 +313,17 @@ def nice_datesince(the_date):
   else:
     return "about %0.1f years ago" % (delta_days / 365.0)
 
+URL_PATH_LEN_LIMIT = 30
+
+def get_display_url(ss):
+  disp_str = ss[7:]
+  if disp_str[-1] == '/':
+    disp_str = disp_str[:-1]
+  p = disp_str.partition('/')
+  if len(p[2]) > URL_PATH_LEN_LIMIT:
+    disp_str = "%s/...%s" % (p[0], p[2][-URL_PATH_LEN_LIMIT-4:])
+  return disp_str
+
 def update_view(snippet, counts_as_read=False):
   if not snippet:
     for widget in (category, source, date_snipped, read_count, rep_rate):
@@ -320,9 +337,9 @@ def update_view(snippet, counts_as_read=False):
     snippet.read_count += 1
 
   try:
-    sdisp = ss = snippet.source
-    if is_url(ss):
-      sdisp = ss[7:]
+    ss = snippet.source
+    sdisp = get_display_url(ss) if is_url(ss) else ss
+
     tui.source.set_text("      Source: %s <%d>" % (sdisp, source_count[ss]))
   except AttributeError:
     tui.source.set_text("      Source: <unknown>")
@@ -331,7 +348,10 @@ def update_view(snippet, counts_as_read=False):
   delta_str = nice_datesince(snippet.added)
   tui.date_snipped.set_text("Date Snipped: %s (%s)" % (date_str, delta_str))
 
-  tui.category.set_text("    Category: %s" % snippet.category)
+  if len(snippet.category) <= 3:
+    tui.category.set_text(snippet.category.upper())
+  else:
+    tui.category.set_text(snippet.category.title())
 
   if snippet.read_count == 0:
     rs = "Snipped just now."
@@ -542,7 +562,7 @@ class TUI(object):
 
     update_view(self.current_snippet, counts_as_read=False)
 
-    # Not sure why this is necessary: something must be barging and updating
+    # Not sure why this is necessary; something must be barging and updating
     # the status
     def update_status(*args):
       self.status.set_text(s2 + s1)
@@ -574,8 +594,14 @@ class TUI(object):
     sys.exit(0)
 
   def cmd_pull_source(self):
+    global sticky_source
+
     self.current_snippet.source = get_chrome_url()
-    self.status.set_text("Source modified.")
+    if sticky_source:
+      sticky_source = None
+      self.status.set_text("Source modified. Sticky source cleared.")
+    else:
+      self.status.set_text("Source modified.")
     update_view(self.current_snippet, counts_as_read=False)
 
   def cmd_delete_current_snippet(self, goto_similar=False):
@@ -589,6 +615,8 @@ class TUI(object):
     self.status.set_text("Really delete? Press y to confirm.")
 
     def d_hook(input):
+      self.input_hook = None
+
       if input != "y":
         self.status.set_text("Not deleted.")
         return
@@ -601,8 +629,6 @@ class TUI(object):
         self.goto_snippet(goto_snippet)
       else:
         self.body.set_text(('dim', self.body.text))
-
-      self.input_hook = None
 
     self.input_hook = d_hook
 
@@ -633,8 +659,9 @@ class TUI(object):
   def cmd_clip(self):
     data = get_clip_data()
     data = data.strip(" ")
+    data = recapitalize(data)
     if self.is_text_filter_enabled:
-      data = rewrap_text(data)
+      data = rewrap(data)
     try:
       if data[-1] != "\n":
         data += "\n"
@@ -657,7 +684,8 @@ class TUI(object):
 
   def cmd_set_sticky_title(self):
     self.status.set_text("Added sticky title.")
-    self.sticky_title = get_clip_data().replace("\n", " ").strip() + "\n\n"
+    clip_data = get_clip_data().replace("\n", " ").strip()
+    self.sticky_title = '[%s]\n\n' % clip_data
 
   def cmd_clear_sticky_title(self):
     self.status.set_text("Sticky title removed.")
@@ -667,8 +695,7 @@ class TUI(object):
     global sticky_source
 
     self.status.set_text("Source copied from clipboard. Sticky set.")
-    sticky_source = get_clip_data()
-    sticky_source.replace("\n", " ")
+    sticky_source = get_clip_data().replace("\n", " ").strip()
     try:
       self.current_snippet.source = sticky_source
     except AttributeError:
@@ -689,7 +716,7 @@ class TUI(object):
   def cmd_toggle_text_filter(self):
     is_enabled = self.is_text_filter_enabled = not self.is_text_filter_enabled
     desc = "enabled" if is_enabled else "disabled"
-    self.status.set_text("text filter %s." % desc)
+    self.status.set_text("newline filter %s." % desc)
 
   def cmd_pgdn(self):
     self.frame.keypress(self.sz(), 'page down')
@@ -889,33 +916,6 @@ def run_urwid_interface():
   tui.similarity = urwid.Text("")
 
   blank = urwid.Divider()
-  listbox_content = [
-    blank,
-    urwid.Padding(tui.body, ('fixed left' ,2),
-                        ('fixed right',2), 20),
-
-    blank,
-    urwid.Text("**", align='center'),
-
-    urwid.Padding(tui.source, ('fixed left' ,2),
-                          ('fixed right',2), 20),
-
-    urwid.Padding(tui.category, ('fixed left' ,2),
-                            ('fixed right',2), 20),
-
-    urwid.Padding(tui.date_snipped, ('fixed left' ,2),
-                                ('fixed right',2), 20),
-
-    urwid.Padding(tui.read_count, ('fixed left' ,2),
-                              ('fixed right',2), 20),
-
-    urwid.Padding(tui.rep_rate, ('fixed left' ,2),
-                            ('fixed right',2), 20),
-
-    urwid.Padding(tui.similarity, ('fixed left' ,2),
-                              ('fixed right',2), 20),
-
-  ]
 
   tui.show_info_screen()
   tui.status = urwid.Text("")
@@ -924,7 +924,21 @@ def run_urwid_interface():
 
   tui.update_footer()
 
-  tui.mainbox = urwid.ListBox(urwid.SimpleListWalker(listbox_content))
+  tui.mainbox = urwid.AttrMap(urwid.ListBox(urwid.SimpleListWalker([
+    urwid.Padding(urwid.Pile([
+      blank,
+      tui.category,
+      blank,
+      tui.body,
+      blank,
+      urwid.Text("**", align='center'),
+      tui.source,
+      tui.date_snipped,
+      tui.read_count,
+      tui.rep_rate,
+      tui.similarity,
+    ]), ('fixed left' ,2), ('fixed right',2), 20),
+  ])), 'body')
 
   class CatBox(object):
     def __init__(self):
@@ -997,15 +1011,16 @@ def run_urwid_interface():
   tui.frame = urwid.Frame(urwid.AttrWrap(tui.mainbox, 'body'), header=header, footer=footer)
 
   palette = [
-    ('reverse','light gray','black'),
+    #('reverse','light gray','black'),
     ('header','white','dark red', 'bold', 'white', '#600'),
-    ('footer','white','black'),
-    ('standout','light green','black'),
-    ('similar', 'yellow','black'),
-    ('dim', 'dark gray', 'black'),
+    ('footer','white','dark red', 'bold', 'white', '#600'),
+    ('standout','light green','black','bold','#0f0', '#000'),
+    ('similar', 'yellow', 'black', '', 'yellow', '#000'),
+    ('dim', 'dark gray', 'black','', '#555', '#000'),
     ('editfc','white', 'dark blue', 'bold'),
     ('editbx','light gray', 'dark blue'),
     ('editcp','black','light gray', 'standout'),
+    ('body', 'white', 'black', 'bold', 'white', '#000'),
     #('bright','dark gray','light gray', ('bold','standout')),
     #('buttn','black','dark cyan'),
     #('buttnf','white','dark blue','bold'),
