@@ -1,6 +1,8 @@
-- "manually written" should have top priority.
-- make <b></b> show up colored
-  - <e></e> is used for editor's notes
+- <e></e> is used for editor's notes
+- <h></h> is used to hide former versions or old text
+- ADD mode: toggle that only displays short entries
+- support for external files
+- Look into vim remoting, or keeping it awake so we don't incur startup cost
 - "about 1 weeks ago" in date snipped area
 - color quoted text that starts with >
 - fix: "1 are ready for review (footer)"

@@ -46,7 +46,6 @@ needs_reading = set()
 
 sticky_source = None
 
-# TODO: Remove # from the hashed url
 source_count = collections.defaultdict(int)
 
 next_24_h_count = 0
@@ -128,7 +127,7 @@ class Snippet(object):
     if self.read_count == -1:
       return 0
 
-    length_factor = max(1.0, 0.62*math.log(len(self.text)) - 1.4)
+    length_factor = max(1.0, 0.62*math.log(len(self.text)+1) - 1.4)
 
     # random_factor
     #
@@ -151,7 +150,7 @@ class Snippet(object):
     # At least one day between reps
     calc = max(1, calc)
 
-    constrain = length_factor * big_rand_factor
+    constrain = 1.2 * length_factor * big_rand_factor
 
     # All rep_rates except "9" have a ~7-day minimum enforced.
     minimum = 7.0 * small_rand_factor
@@ -316,6 +315,8 @@ def nice_datesince(the_date):
 URL_PATH_LEN_LIMIT = 30
 
 def get_display_url(ss):
+  # TODO: Remove # from the hashed url
+
   disp_str = ss[7:]
   if disp_str[-1] == '/':
     disp_str = disp_str[:-1]
@@ -500,10 +501,22 @@ class TUI(object):
       self.show_info_screen()
       return
 
-    while needs_reading:
-      new_snippet = needs_reading.pop()
-      if not review_cat_lock or new_snippet.category == review_cat_lock:
-        break
+    # TODO: very inefficient with large numbers of available snippets
+    for new_snippet in needs_reading:
+      try:
+        if new_snippet.source == 'manually written':
+          needs_reading.remove(new_snippet)
+          break
+      except AttributeError:
+        pass
+    else:
+      # XXX: This is fairly efficient since the needs_reading list does not
+      # have to be traversed too often but causes the ready-for-review counter
+      # to be wrong
+      while needs_reading:
+        new_snippet = needs_reading.pop()
+        if not review_cat_lock or new_snippet.category == review_cat_lock:
+          break
 
     self.goto_snippet(new_snippet)
 
@@ -858,7 +871,7 @@ def open_editor_with_tmp_file_containing(in_text):
     f.write(in_text.encode('UTF-8'))
 
   import pexpect, struct, fcntl, termios, signal, sys
-  p = pexpect.spawn('vim %s' % path)
+  p = pexpect.spawn('vim --cmd "set spell" %s' % path)
 
   def sigwinch_passthrough(sig, data):
     """window resize event signal handler"""
