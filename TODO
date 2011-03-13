@@ -1,7 +1,14 @@
+- If snippet does not end in a period, a period should be added.
 - <e></e> is used for editor's notes
 - <h></h> is used to hide former versions or old text
+  - Length calculations should not take hidden text into account
 - ADD mode: toggle that only displays short entries
 - support for external files
+- optional speedup parser written in C
+- temporarily "ban" categories
+  - actually, i was thinking something like checkmarks and X's in the menu
+  - then you can have a key enable one category and change all others to X's,
+    one key to X a specific category, etc
 - Look into vim remoting, or keeping it awake so we don't incur startup cost
 - "about 1 weeks ago" in date snipped area
 - color quoted text that starts with >

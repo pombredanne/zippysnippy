@@ -6,41 +6,42 @@ SEP="-"*77 + "\n"
 
 import re
 import os
-import datetime
+import fcntl
+import ast
+import collections
+
+from pprint import pformat
+from datetime import datetime
+
+LOCK_FILE_PATH = os.path.join(DATA_DIRECTORY, "_lock")
+REVIEW_PRIORITY_FILE_PATH = os.path.join(DATA_DIRECTORY, "_review_priority")
 
 has_subcategories = set()
 
-def import_simple_fmt():
-  """for old,old manual files"""
-  with open("fn", 'r') as f:
-    data = f.read().decode("UTF-8", 'ignore')
+def read_review_priorities():
+  try:
+    with open(REVIEW_PRIORITY_FILE_PATH) as f:
+      return ast.literal_eval(f.read())
+  except:
+    return {}
 
-  data = strip_unicode(data)
-
-  SEP2="-"*74 + "\n"
-
-  entries = re.split(SEP2, data)
-  for entry_text in entries:
-    if entry_text.startswith("http://"):
-      url, _, entry_text = entry_text.partition("\n")
-    if len(entry_text) > 3:
-      snippets.append(Snippet(text=entry_text,
-                              category="cat",
-                              source=url,
-                              added=datetime.datetime.now(),
-                              read_count=0))
+def write_review_priorities(p):
+  with open(REVIEW_PRIORITY_FILE_PATH, 'w') as f:
+    f.write(pformat(p))
 
 def write_to_one_file():
   return
   with open("single-file-output.txt", 'w') as f:
     for snippet in snippets.values():
-      for param in ['read_count', 'category', 'added']:
+      for param in ('read_count', 'category', 'added'):
         f.write("%s: %s\n" % (param, str(getattr(snippet, param))))
       f.write("*\n")
       f.write(snippet.text)
       f.write(SEP)
 
-def write_to_category_files(categories, snippets):
+def write_to_category_files(categories, snippets, status=False):
+  #counter = collections.Counter()
+
   for category in categories:
     try:
       with open(category_name_to_relative_path(category), 'w') as f:
@@ -61,8 +62,16 @@ def write_to_category_files(categories, snippets):
           f.write("*\n")
           f.write(snippet.text.encode("UTF-8"))
           f.write(SEP)
+          #counter['snippets'] += 1
     except IOError:
-      pass # TODO: Log error
+      if status:
+        print "IOError!"
+    #counter['categories'] += 1
+    #if status:
+    #  print "%d snippets in %d categories written." % (
+    #    counter['snippets'], counter['categories']
+    #  )
+
 
 def relative_path_to_category_name(path):
   """
@@ -104,6 +113,9 @@ def read_directory(dir):
     if filename.startswith("."):
       continue
 
+    if filename.startswith("_"):
+      continue
+
     if os.path.isdir(infile):
       for x in read_directory(infile):
         yield x
@@ -121,14 +133,14 @@ def read_directory(dir):
           if name == "":
             pass
           elif name == "added":
-            p_dict['added'] = datetime.datetime.strptime(value.strip(),
+            p_dict['added'] = datetime.strptime(value.strip(),
                                                          "%Y-%m-%d %H:%M:%S.%f")
           elif name == "last_read":
             try:
-              last_read_time = datetime.datetime.strptime(value.strip(),
-                                                               "%Y-%m-%d %H:%M:%S.%f")
+              last_read_time = datetime.strptime(value.strip(),
+                                                          "%Y-%m-%d %H:%M:%S.%f")
             except ValueError:
-              last_read_time = datetime.datetime.now()
+              last_read_time = datetime.now()
             p_dict['last_read'] = last_read_time
           elif name == "read_count":
             p_dict['read_count'] = int(value)
@@ -139,7 +151,7 @@ def read_directory(dir):
           elif name == "rep_rate":
             p_dict['rep_rate'] = int(value)
           else:
-            logging.warning("Unknown property '%s'" % name)
+            raise Exception("Unknown property '%s'" % name)
 
         try:
           text = text.rstrip() + "\n"
@@ -164,3 +176,17 @@ def read_category_files():
 
   for x in read_directory(''):
     yield x
+
+def release_lock():
+  pass
+  #lock_file.close()
+  #os.unlink(LOCK_FILE_PATH)
+
+def acquire_lock():
+  pass
+  #global lock_file
+
+  #lock_file = open(LOCK_FILE_PATH, 'w')
+
+  # Doesn't work with NFS
+  #fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)

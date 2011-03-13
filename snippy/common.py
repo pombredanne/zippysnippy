@@ -4,15 +4,21 @@
 APP_NAME = "ZippySnippy"
 APP_VERSION = "0.1"
 
+# Punctuation which is allowed to end a sentence
+TERMINAL_PUNCT = '!\'".?'
+
 # After pressing return to advance to the next item, you can't advance again
-# for this many seconds (prevents accidental key presses)
+# for this many seconds (helps prevent accidental key presses)
 NEXT_ITEM_DELAY = 1
+
+URL_PATH_LEN_LIMIT = 30
 
 import collections
 import cPickle
 import datetime
-import logging
 import functools
+import heapq
+import logging
 import math
 import os
 import random
@@ -22,6 +28,7 @@ import subprocess
 import sys
 import textwrap
 import time
+import traceback
 import urllib
 
 from unidecode import unidecode
@@ -37,12 +44,11 @@ logging.basicConfig(level=logging.DEBUG)
 
 snippets = []
 
-# Initially, all categories are up for review
-review_cat_lock = False
-
 all_flags = set()
 categories = set()
 needs_reading = set()
+
+read_q = []
 
 sticky_source = None
 
@@ -53,6 +59,30 @@ next_24_h_count = 0
 is_url = re.compile(r"http://").match
 split_by_punct = re.compile(r'([.!?] *)').split
 capitalize_i = functools.partial(re.compile(r' i ').sub, " I ")
+
+review_priorities = io.read_review_priorities()
+
+def shuffle(lst):
+ random.shuffle(lst) 
+ return lst
+
+def rebuild_review_ds():
+  read_q[:] = []
+  for i, sn in enumerate(shuffle(list(needs_reading))):
+    # To ensure randomness I think you really need to add the ordering i to the
+    # heappushes
+
+    # Manual entries are given absolute priority
+    if getattr(sn, 'source', '') == 'manually written':
+      heapq.heappush(read_q, (0, i, sn))
+      continue
+
+    try:
+      value = int(review_priorities[sn.category])
+    except ValueError:
+      pass # It had an 'x' and should be ignored
+    else:
+      heapq.heappush(read_q, (value, i, sn))
 
 def calc_days(rc, rr, length_factor, random_factor):
   # rc: read_count, varies between 0 and inf
@@ -262,14 +292,6 @@ def get_chrome_url():
   except sqlite3.OperationalError:
     return "<unknown>" # Chrome not active, plugin not installed, etc
 
-#import_simple_fmt()
-
-snippet_reader = io.read_category_files()
-for read_ct, text, last_read, flags, source, cat, rep_rate, added in snippet_reader:
-  snippets.append(Snippet(
-    read_ct, text, cat, added, last_read, flags, rep_rate, source
-  ))
-
 def calc_needs_reading():
   global next_24_h_count
 
@@ -281,13 +303,6 @@ def calc_needs_reading():
     else:
       if sn.will_be_ready_in_next_24_h():
         next_24_h_count += 1
-
-calc_needs_reading()
-
-#active_category = 'misc'
-active_category = 'pua'
-#write_to_one_file()
-#write_to_category_files()
 
 def nice_datesince(the_date):
   """Formats a datetime in terms of earlier today, yesterday, 3 days ago, etc"""
@@ -311,8 +326,6 @@ def nice_datesince(the_date):
     return "about %d weeks ago" % round(delta_days / 7.0)
   else:
     return "about %0.1f years ago" % (delta_days / 365.0)
-
-URL_PATH_LEN_LIMIT = 30
 
 def get_display_url(ss):
   # TODO: Remove # from the hashed url
@@ -379,6 +392,7 @@ class TUI(object):
   sticky_title = ""
 
   def update_callback(self, loop):
+    # XXX: needs update for 
     calc_needs_reading()
     self.update_footer()
 
@@ -427,16 +441,15 @@ class TUI(object):
 
     ready_ct = len(needs_reading)
 
-    tui.body.set_text(textwrap.dedent("""
-      %s %s ready for review.
-
-      (%s, %s will become ready over the next 24 hours.)
-
-      %s""" % (inflect.no("snippet", ready_ct).capitalize(),
+    tui.body.set_text(
+      "%s %s ready for review.\n\n"
+      "(%s, %s will become ready over the next 24 hours.)\n\n"
+      "%s" % (inflect.no("snippet", ready_ct).capitalize(),
                inflect.plural_verb("is", ready_ct),
                first,
                inflect.no("snippet", next_24_h_count),
-               second))[1:])
+               second)
+    )
 
 
   def update_rep_rate(self, snippet):
@@ -454,10 +467,7 @@ class TUI(object):
       ))
       self.active_cat.set_text("Default category: %s " % active_category)
 
-    if review_cat_lock:
-      txt = review_cat_lock
-    else:
-      txt = "[unlocked]"
+    txt = "[unlocked]"
     self.review_cat.set_text("Review cat lock: %s" % txt)
 
   def defer_update_similarity(self):
@@ -497,26 +507,14 @@ class TUI(object):
       self.loop.set_alarm_in(rem_time, lambda x,y: self.update_footer())
       return
 
-    if not needs_reading:
+    try:
+      _, _, new_snippet = heapq.heappop(read_q)
+    except IndexError:
+      # read_q is empty
       self.show_info_screen()
       return
-
-    # TODO: very inefficient with large numbers of available snippets
-    for new_snippet in needs_reading:
-      try:
-        if new_snippet.source == 'manually written':
-          needs_reading.remove(new_snippet)
-          break
-      except AttributeError:
-        pass
     else:
-      # XXX: This is fairly efficient since the needs_reading list does not
-      # have to be traversed too often but causes the ready-for-review counter
-      # to be wrong
-      while needs_reading:
-        new_snippet = needs_reading.pop()
-        if not review_cat_lock or new_snippet.category == review_cat_lock:
-          break
+      needs_reading.remove(new_snippet)
 
     self.goto_snippet(new_snippet)
 
@@ -585,7 +583,7 @@ class TUI(object):
   def cmd_new_snippet(self):
     result_txt = open_editor_with_tmp_file_containing("")
     if len(result_txt) < 3:
-      self.status.set_text("New clip not created.")
+      self.status.set_text("New clip not created; text too short.")
     else:
       self.current_snippet = Snippet(
         read_count= -1,
@@ -603,8 +601,15 @@ class TUI(object):
     update_view(self.current_snippet, counts_as_read=True)
 
   def cmd_quit(self):
-    quit()
     sys.exit(0)
+
+  def cmd_write(self):
+    def cb(loop, u_data):
+      write(status=False)
+      self.status.set_text("Data files written to disk.")
+
+    self.loop.set_alarm_in(0.01, cb)
+    self.status.set_text("Writing. Please wait...")
 
   def cmd_pull_source(self):
     global sticky_source
@@ -671,29 +676,33 @@ class TUI(object):
 
   def cmd_clip(self):
     data = get_clip_data()
+
     data = data.strip(" ")
+    if len(data) < 3:
+      self.status.set_text("Error: no clipboard data (or too short).")
+      return
+
+    if data[-1] not in TERMINAL_PUNCT:
+      data += "."
     data = recapitalize(data)
     if self.is_text_filter_enabled:
       data = rewrap(data)
-    try:
-      if data[-1] != "\n":
-        data += "\n"
-    except IndexError:
-      self.status.set_text("Error: no clipboard data.")
-    else:
-      self.current_snippet = sn = Snippet(
-        text= self.sticky_title + data,
-        source= sticky_source if sticky_source else get_chrome_url(),
-        category= active_category,
-        added= datetime.datetime.now(),
-        last_read= datetime.datetime.now(),
-        read_count= 0
-      )
-      snippets.append(sn)
 
-      self.status.set_text("New clip recorded.")
-      update_view(sn)
-      self.update_footer()
+    data += "\n"
+
+    self.current_snippet = sn = Snippet(
+      text= self.sticky_title + data,
+      source= sticky_source if sticky_source else get_chrome_url(),
+      category= active_category,
+      added= datetime.datetime.now(),
+      last_read= datetime.datetime.now(),
+      read_count= 0
+    )
+    snippets.append(sn)
+
+    self.status.set_text("New clip recorded.")
+    update_view(sn)
+    self.update_footer()
 
   def cmd_set_sticky_title(self):
     self.status.set_text("Added sticky title.")
@@ -715,13 +724,6 @@ class TUI(object):
       pass # No current snippet!
     else:
       update_view(self.current_snippet)
-
-  def cmd_lock_review_topic(self):
-    global review_cat_lock
-
-    review_cat_lock = active_category
-    self.status.set_text("Review topic locked to %s." % review_cat_lock)
-    self.update_footer(False)
 
   def cmd_undo(self):
     self.status.set_text("undo not yet implemented.")
@@ -777,9 +779,10 @@ class TUI(object):
   def cmd_show_review_category_menu(self):
     from . import ui
 
-    menu = ui.PopupMenu(
+    menu = ui.ReviewCatPopupMenu(
+      review_priorities,
       ["[unlocked]"] + sorted(categories),
-      review_cat_lock if review_cat_lock else "[unlocked]",
+      "[unlocked]",
       ('fixed left', 0, 'fixed bottom', 1),
       tui.frame,
     )
@@ -788,13 +791,7 @@ class TUI(object):
     tui.loop.widget = menu
 
     def t_hook(input):
-      global review_cat_lock
-
-      if menu.selected:
-        review_cat_lock = menu.selected
-        if review_cat_lock == "[unlocked]":
-          review_cat_lock = False
-        tui.update_footer()
+      rebuild_review_ds()
 
       tui.loop.widget = old_widget
 
@@ -827,13 +824,12 @@ class TUI(object):
     self.input_hook = t_hook
 
   input_map = {
-    'c': cmd_open_category_selector,
     '?': cmd_help,
-    ' ': cmd_pgdn,
-    'd': cmd_delete_current_snippet,
+    ' ': cmd_next_snippet,
+    'c': cmd_open_category_selector,
     'D': cmd_delete_and_goto_similar,
+    'd': cmd_delete_current_snippet,
     'e': cmd_edit_snippet,
-    'enter': cmd_next_snippet,
     'f': cmd_toggle_text_filter,
     'h': cmd_rep_rate_down,
     'j': cmd_scroll_down,
@@ -845,23 +841,27 @@ class TUI(object):
     'O': cmd_search_in_google,
     'p': cmd_pull_source,
     'q': cmd_quit,
+    'r': cmd_show_review_category_menu,
     's': cmd_clip,
     'S': cmd_set_sticky_source,
-    't': cmd_set_sticky_title,
     'T': cmd_clear_sticky_title,
+    't': cmd_set_sticky_title,
     'u': cmd_undo,
+    'w': cmd_write,
     'x': cmd_show_default_category_menu,
-    'r': cmd_show_review_category_menu,
   }
 
-
-tui = TUI()
-
-def quit():
+def write(status=False):
   if tui.current_snippet:
     tui.current_snippet.update_read_time()
 
-  io.write_to_category_files(categories, snippets)
+  io.write_to_category_files(categories, snippets, status=status)
+
+  io.write_review_priorities(review_priorities)
+
+def quit():
+  write(status=True)
+  io.release_lock()
   #set_term_title("Terminal", show_extra=False)
 
 def open_editor_with_tmp_file_containing(in_text):
@@ -913,6 +913,8 @@ def open_editor_with_tmp_file_containing(in_text):
 
 def run_urwid_interface():
   import urwid
+
+  io.acquire_lock()
 
   txt_header = (
     "%s %s - " % (APP_NAME, APP_VERSION) + "Press ? for help"
@@ -1095,7 +1097,7 @@ def run_urwid_interface():
 
     tui.input_map.get(input, still_unhandled)(tui)
 
-# Curses module seems to be hosed
+  # Curses module seems to be hosed?
   tui.screen = urwid.raw_display.Screen()
   tui.screen.set_terminal_properties(256)
   tui.screen.register_palette(palette)
@@ -1103,19 +1105,57 @@ def run_urwid_interface():
   def main_loop():
     tui.loop = urwid.MainLoop(tui.frame, screen=tui.screen, unhandled_input=unhandled)
 
-    def update_adapter(loop, u_data):
-      loop.set_alarm_in(120, update_adapter)
-      return tui.update_callback(loop)
+    # This was somewhat buggy, causing scroll to the top and other undesirable
+    # behavior
 
-    tui.loop.set_alarm_in(120, update_adapter)
+    #def update_adapter(loop, u_data):
+    #  loop.set_alarm_in(120, update_adapter)
+    #  return tui.update_callback(loop)
+
+    #tui.loop.set_alarm_in(120, update_adapter)
 
     try:
       tui.loop.run()
     except KeyboardInterrupt:
-      quit()
-      sys.exit(0)
+      tui.status.set_text("Press 'q' to quit.")
+    except SystemExit as code:
+      if code == 0:
+        tui.screen.stop()
+
+        quit()
+      else:
+        raise
     except:
+      tui.screen.stop()
+
+      for line in textwrap.wrap(
+      "%s has encountered an unhandled exception. We can attempt to save "
+      "your data, however, there is a small possibility that it may be "
+      "corrupt. It is recommended that you backup your data before "
+      "continuing." % APP_NAME
+      ):
+        print line
+
+      # TODO: ask user whether to attempt save or not
       quit()
-      raise
+
+      traceback.print_exc()
 
   tui.screen.run_wrapper(main_loop)
+
+snippet_reader = io.read_category_files()
+for read_ct, text, last_read, flags, source, cat, rep_rate, added in snippet_reader:
+  snippets.append(Snippet(
+    read_ct, text, cat, added, last_read, flags, rep_rate, source
+  ))
+
+calc_needs_reading()
+
+rebuild_review_ds()
+
+#active_category = 'misc'
+active_category = 'pua'
+#write_to_one_file()
+#write_to_category_files()
+
+tui = TUI()
