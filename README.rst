@@ -1,5 +1,5 @@
-Note: ZippySnippy is currently alpha-quality software. I use it to manage
-thousands of snippets, but there are still a lot of rough edges.
+Note: ZippySnippy has been superseeded by a currently-unreleased tool written
+in Go. At some point I will get the new source cleaned up and published.
 
 Philosophy
 ----------
