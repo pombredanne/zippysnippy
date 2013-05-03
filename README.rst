@@ -1,4 +1,4 @@
-Note: ZippySnippy has been superseeded by a currently-unreleased tool written
+Note: ZippySnippy has been replaced by a currently-unreleased tool written
 in Go. At some point I will get the new source cleaned up and published.
 
 Philosophy
